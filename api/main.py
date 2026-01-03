@@ -37,6 +37,28 @@ openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 embedding_gen = EmbeddingGenerator()
 
 # ==================
+# HEALTH CHECK
+# ==================
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Railway and monitoring"""
+    return {
+        "status": "healthy",
+        "service": "shopify-search-backend",
+        "version": "1.0.0"
+    }
+
+@app.get("/")
+async def root():
+    """Root endpoint"""
+    return {
+        "service": "SmartSearch AI API",
+        "version": "1.0.0",
+        "status": "running"
+    }
+
+# ==================
 # TYPO CORRECTION
 # ==================
 
