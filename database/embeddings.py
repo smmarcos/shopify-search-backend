@@ -25,18 +25,33 @@ class EmbeddingGenerator:
     async def generate_product_embedding(self, product: Dict) -> List[float]:
         """
         Generate embedding for product combining title, description, tags
+        Supports multilanguage by concatenating translations (ES, FR, DE, IT, etc.)
         
         Args:
-            product: Dict with 'title', 'description', 'tags', etc.
+            product: Dict with 'title', 'description', 'tags', 'translations', etc.
         
         Returns:
             Embedding vector
         """
-        # Combine relevant text fields
+        # Primary language text parts (usually EN)
         text_parts = [product.get('title', '')]
         
         if product.get('description'):
             text_parts.append(product['description'])
+        
+        # Add translations if available (Shopify multilanguage)
+        # Format: translations = { "es": {"title": "...", "description": "..."}, "fr": {...} }
+        if product.get('translations'):
+            translations = product['translations']
+            if isinstance(translations, dict):
+                for lang, trans_data in translations.items():
+                    if isinstance(trans_data, dict):
+                        # Add translated title with separator
+                        if trans_data.get('title'):
+                            text_parts.append(f"| {trans_data['title']}")
+                        # Add translated description
+                        if trans_data.get('description'):
+                            text_parts.append(trans_data['description'])
         
         if product.get('vendor'):
             text_parts.append(f"Brand: {product['vendor']}")
@@ -49,6 +64,14 @@ class EmbeddingGenerator:
             text_parts.append(f"Tags: {', '.join(tags)}")
         
         combined_text = " ".join(text_parts)
+        
+        # Log for debugging (first product only)
+        if product.get('product_id'):
+            print(f"🌐 Multilang embedding for {product.get('title', 'Unknown')[:30]}...")
+            if product.get('translations'):
+                langs = list(product['translations'].keys())
+                print(f"   Languages: EN + {', '.join(langs)}")
+        
         return await self.generate_embedding(combined_text)
     
     async def sync_product_to_db(self, product: Dict) -> bool:
