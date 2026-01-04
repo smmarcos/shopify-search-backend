@@ -1098,6 +1098,67 @@ async def compare_shopify_products(data: ProductsList):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/regenerate-embeddings")
+async def regenerate_embeddings():
+    """Regenerate embeddings for products with needs_resync flag"""
+    try:
+        # Get products that need resync
+        pool = await db_client.connect()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT product_id, title, description, vendor, category, tags
+                FROM product_embeddings
+                WHERE metadata->>'needs_resync' = 'true'
+            """)
+        
+        if not rows:
+            return {
+                "success": True,
+                "message": "No hay productos que necesiten regeneración",
+                "regenerated_count": 0
+            }
+        
+        regenerated_count = 0
+        
+        for row in rows:
+            try:
+                # Generate new embedding
+                combined_text = f"{row['title']} {row['description']} {row['vendor']} {row['category']}"
+                if row['tags']:
+                    tags_str = ' '.join(row['tags']) if isinstance(row['tags'], list) else row['tags']
+                    combined_text += f" {tags_str}"
+                
+                embedding = await embedding_gen.generate_embedding(combined_text)
+                
+                # Update product with new embedding and remove needs_resync flag
+                async with pool.acquire() as conn:
+                    await conn.execute("""
+                        UPDATE product_embeddings
+                        SET embedding = $1,
+                            metadata = metadata - 'needs_resync'
+                        WHERE product_id = $2
+                    """, embedding, row['product_id'])
+                
+                regenerated_count += 1
+                print(f"✅ Regenerated embedding for: {row['title']}")
+                
+            except Exception as product_error:
+                print(f"⚠️ Failed to regenerate embedding for {row['product_id']}: {product_error}")
+                continue
+        
+        return {
+            "success": True,
+            "message": f"Embeddings regenerados exitosamente",
+            "regenerated_count": regenerated_count,
+            "total_found": len(rows)
+        }
+        
+    except Exception as e:
+        print(f"❌ Regenerate embeddings error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/sync-shopify-products")
 async def sync_shopify_products():
     """Fetch products from Shopify and update database"""
