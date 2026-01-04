@@ -285,6 +285,13 @@ async def search_products(request: SearchRequest):
                 SET searches_this_month = searches_this_month + 1
                 WHERE shop_domain = $1
             """, shop)
+            
+            # 2.1 SAVE TO ANALYTICS - Track every search (even before knowing results)
+            await conn.execute("""
+                INSERT INTO search_analytics (query, results_count)
+                VALUES ($1, 0)
+            """, request.query)
+            print(f"📊 Analytics tracked: '{request.query}'")
         
         # 3. PROCEED WITH SEARCH (existing logic)
         # Get current configuration from database
@@ -355,18 +362,6 @@ async def search_products(request: SearchRequest):
                     if not r.get('archived', False)
                 ]
             
-            # GUARDAR ANALYTICS - Registrar búsqueda (ruta con agente)
-            try:
-                pool = await db_client.connect()
-                async with pool.acquire() as conn:
-                    await conn.execute("""
-                        INSERT INTO search_analytics (query, results_count)
-                        VALUES ($1, $2)
-                    """, corrected_query, len(filtered_results[:max_results]))
-                    print(f"✅ Analytics saved: '{corrected_query}' -> {len(filtered_results[:max_results])} results")
-            except Exception as analytics_error:
-                print(f"⚠️ Failed to save analytics: {analytics_error}")
-            
             return SearchResponse(
                 results=filtered_results[:max_results],
                 total=len(filtered_results),
@@ -399,18 +394,6 @@ async def search_products(request: SearchRequest):
                 }
                 for r in filtered_results
             ]
-            
-            # 3. GUARDAR ANALYTICS - Registrar búsqueda (ruta directa sin agente)
-            try:
-                pool = await db_client.connect()
-                async with pool.acquire() as conn:
-                    await conn.execute("""
-                        INSERT INTO search_analytics (query, results_count)
-                        VALUES ($1, $2)
-                    """, corrected_query, len(products))
-                    print(f"✅ Analytics saved (direct): '{corrected_query}' -> {len(products)} results")
-            except Exception as analytics_error:
-                print(f"⚠️ Failed to save analytics: {analytics_error}")
             
             return SearchResponse(
                 results=products,
