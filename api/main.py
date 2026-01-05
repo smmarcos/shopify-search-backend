@@ -410,6 +410,38 @@ async def update_subscription_plans():
         import traceback
         raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}\n{traceback.format_exc()}")
 
+@app.post("/api/admin/deactivate-old-plans")
+async def deactivate_old_plans():
+    """Deactivate old plan names (free, basic, pro, business) so only new ones show"""
+    try:
+        pool = await db_client.connect()
+        async with pool.acquire() as conn:
+            old_plans = ['free', 'basic', 'pro', 'business']
+            
+            for plan_name in old_plans:
+                await conn.execute("""
+                    UPDATE subscription_plans 
+                    SET active = false 
+                    WHERE name = $1
+                """, plan_name)
+            
+            # Get active plans
+            active_plans = await conn.fetch("""
+                SELECT name, price, max_products, max_searches_per_month
+                FROM subscription_plans
+                WHERE active = true
+                ORDER BY price ASC
+            """)
+            
+            return {
+                "status": "success",
+                "deactivated": old_plans,
+                "active_plans": [dict(p) for p in active_plans]
+            }
+    except Exception as e:
+        import traceback
+        raise HTTPException(status_code=500, detail=f"Failed: {str(e)}\n{traceback.format_exc()}")
+
 @app.get("/api/admin/debug-products")
 async def debug_products(shop: str = "test.myshopify.com"):
     """Debug endpoint to see product status"""
