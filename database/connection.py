@@ -110,6 +110,8 @@ class DatabaseClient:
         """
         
         print(f"📝 Query params count: {len(params)}, params: {[type(p).__name__ for p in params]}")
+        print(f"🔍 WHERE clause: {where_clause}")
+        print(f"📄 Full query: {query[:300]}...")
         
         async with pool.acquire() as conn:
             rows = await conn.fetch(query, *params)  # Fixed: use *params instead of embedding_str, *params[1:]
