@@ -57,10 +57,12 @@ class DatabaseClient:
         Returns:
             List of products with similarity scores
         """
+        print(f"🔍 vector_search called - query_embedding type: {type(query_embedding)}, len: {len(query_embedding) if isinstance(query_embedding, list) else 'N/A'}")
         pool = await self.connect()
         
         # Convert embedding list to string format for pgvector
         embedding_str = f"[{','.join(map(str, query_embedding))}]"
+        print(f"✅ embedding_str created, first 50 chars: {embedding_str[:50]}")
         
         # Build WHERE clause dynamically
         where_conditions = []
