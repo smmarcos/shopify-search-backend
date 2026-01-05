@@ -66,8 +66,8 @@ class DatabaseClient:
         
         # Build WHERE clause dynamically
         where_conditions = []
-        params = []  # Don't include embedding_str in params - we'll interpolate it
-        param_counter = 1  # Start at $1 since embedding is interpolated
+        params = [embedding_str]  # Start with embedding_str as $1
+        param_counter = 2  # Next param is $2
         
         if max_price is not None:
             where_conditions.append(f"price <= ${param_counter}")
@@ -92,7 +92,7 @@ class DatabaseClient:
         
         where_clause = "WHERE " + " AND ".join(where_conditions)
         
-        # Use string interpolation for embedding AND limit to avoid asyncpg type inference issues
+        # Build query exactly like test-search (which works)
         query = f"""
             SELECT 
                 product_id,
@@ -103,16 +103,16 @@ class DatabaseClient:
                 category,
                 tags,
                 metadata,
-                1 - (embedding <=> CAST('{embedding_str}' AS vector)) as similarity_score
+                1 - (embedding <=> CAST($1 AS vector)) as similarity_score
             FROM product_embeddings
             {where_clause}
-            ORDER BY embedding <=> CAST('{embedding_str}' AS vector)
+            ORDER BY embedding <=> CAST($1 AS vector)
             LIMIT {limit}
         """
         
         print(f"📝 Query params count: {len(params)}, params: {[type(p).__name__ for p in params]}")
         print(f"🔍 WHERE clause: {where_clause}")
-        print(f"📄 Embedding & limit interpolated directly, other params: {len(params)}")
+        print(f"📄 Query using $1 for embedding (as parameter), limit={limit}")
         
         async with pool.acquire() as conn:
             rows = await conn.fetch(query, *params)
