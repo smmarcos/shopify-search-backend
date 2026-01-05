@@ -623,8 +623,8 @@ async def search_products(request: SearchRequest):
         if request.max_results:
             max_results = min(request.max_results, max_results) if results_limit != "unlimited" else max_results
         
-        # 3. Get similarity threshold from config
-        similarity_threshold = config.get("similarity_threshold", 70) / 100.0
+        # 3. Get similarity threshold from config (default 50% for better recall)
+        similarity_threshold = config.get("similarity_threshold", 50) / 100.0
         
         # 4. Direct vector search (más rápido y permite pasar shop correctamente)
         query_embedding = await embedding_gen.generate_embedding(corrected_query)
