@@ -346,6 +346,70 @@ async def migrate_old_plans():
         import traceback
         raise HTTPException(status_code=500, detail=f"Migration failed: {str(e)}\n{traceback.format_exc()}")
 
+@app.post("/api/admin/update-subscription-plans")
+async def update_subscription_plans():
+    """Update subscription plans with new pricing and limits"""
+    try:
+        pool = await db_client.connect()
+        async with pool.acquire() as conn:
+            print("🔄 Updating subscription plans...")
+            
+            # New plan definitions
+            new_plans = [
+                {'name': 'starter', 'price': 0.00, 'max_products': 50, 'max_searches': 300},
+                {'name': 'launch', 'price': 9.00, 'max_products': 250, 'max_searches': 1000},
+                {'name': 'growth', 'price': 19.00, 'max_products': 2500, 'max_searches': 7500},
+                {'name': 'scale', 'price': 49.00, 'max_products': 5000, 'max_searches': 20000},
+                {'name': 'enterprise', 'price': 149.00, 'max_products': -1, 'max_searches': -1}
+            ]
+            
+            results = []
+            
+            for plan in new_plans:
+                # Check if plan exists
+                existing = await conn.fetchrow(
+                    "SELECT id, name, price, max_products, max_searches_per_month FROM subscription_plans WHERE name = $1",
+                    plan['name']
+                )
+                
+                if existing:
+                    # Update existing plan
+                    await conn.execute("""
+                        UPDATE subscription_plans 
+                        SET price = $1, 
+                            max_products = $2, 
+                            max_searches_per_month = $3,
+                            updated_at = NOW()
+                        WHERE name = $4
+                    """, plan['price'], plan['max_products'], plan['max_searches'], plan['name'])
+                    
+                    results.append(f"✅ Updated {plan['name']}: ${plan['price']}/mo, {plan['max_products']} products, {plan['max_searches']} searches")
+                else:
+                    # Insert new plan
+                    await conn.execute("""
+                        INSERT INTO subscription_plans (name, price, max_products, max_searches_per_month, features, active)
+                        VALUES ($1, $2, $3, $4, $5, true)
+                    """, plan['name'], plan['price'], plan['max_products'], plan['max_searches'],
+                    '{"ai_search": true, "semantic_search": true, "typo_correction": true, "analytics": true}')
+                    
+                    results.append(f"✅ Created {plan['name']}: ${plan['price']}/mo, {plan['max_products']} products, {plan['max_searches']} searches")
+            
+            # Get all current plans
+            all_plans = await conn.fetch("""
+                SELECT name, price, max_products, max_searches_per_month, active
+                FROM subscription_plans
+                ORDER BY price ASC
+            """)
+            
+            return {
+                "status": "success",
+                "updates": results,
+                "current_plans": [dict(p) for p in all_plans]
+            }
+    except Exception as e:
+        import traceback
+        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}\n{traceback.format_exc()}")
+
 @app.get("/api/admin/debug-products")
 async def debug_products(shop: str = "test.myshopify.com"):
     """Debug endpoint to see product status"""
