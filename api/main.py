@@ -833,6 +833,64 @@ async def initialize_subscription(request: dict):
         print(f"❌ Subscription initialization error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/subscription/uninstall")
+async def uninstall_cleanup(request: dict):
+    """Clean up all shop data on app uninstall (GDPR compliant)"""
+    try:
+        shop = request.get("shop")
+        
+        if not shop:
+            raise HTTPException(status_code=400, detail="Shop domain is required")
+        
+        pool = await db_client.connect()
+        deleted_counts = {}
+        
+        async with pool.acquire() as conn:
+            # 1. Delete usage tracking
+            result = await conn.execute("""
+                DELETE FROM usage_tracking WHERE shop_domain = $1
+            """, shop)
+            deleted_counts['usage_tracking'] = result.split()[1] if result else '0'
+            
+            # 2. Delete user subscription
+            result = await conn.execute("""
+                DELETE FROM user_subscriptions WHERE shop_domain = $1
+            """, shop)
+            deleted_counts['subscriptions'] = result.split()[1] if result else '0'
+            
+            # 3. Delete product embeddings (contains shop in metadata)
+            result = await conn.execute("""
+                DELETE FROM product_embeddings 
+                WHERE metadata->>'shop' = $1
+            """, shop)
+            deleted_counts['products'] = result.split()[1] if result else '0'
+            
+            # 4. Delete search analytics (if shop-specific)
+            # Note: Current schema doesn't have shop_domain in search_analytics
+            # Consider adding it for better data isolation
+            
+            # 5. Delete app settings/config
+            result = await conn.execute("""
+                DELETE FROM app_settings 
+                WHERE key = $1 OR key LIKE $2
+            """, shop, f"{shop}_%")
+            deleted_counts['settings'] = result.split()[1] if result else '0'
+        
+        print(f"🧹 Uninstall cleanup completed for {shop}: {deleted_counts}")
+        
+        return {
+            "status": "success",
+            "message": f"All data deleted for {shop}",
+            "shop": shop,
+            "deleted": deleted_counts
+        }
+        
+    except Exception as e:
+        print(f"❌ Uninstall cleanup error for {shop}: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/extension-status")
 async def get_extension_status():
     """Check if theme extension is active by looking for recent searches"""
@@ -1024,10 +1082,11 @@ class ProductsList(BaseModel):
     products: List[dict]
 
 @app.post("/api/compare-shopify-products")
-async def compare_shopify_products(data: ProductsList):
+async def compare_shopify_products(request: dict):
     """Compare Shopify products with database and update"""
     try:
-        shopify_products = data.products
+        shopify_products = request.get('products', [])
+        shop = request.get('shop', '')
         
         # Get current products in DB with embedding status
         db_products = await db_client.get_all_products_with_status()
@@ -1082,7 +1141,10 @@ async def compare_shopify_products(data: ProductsList):
                 vendor=product.get('vendor', ''),
                 category=product.get('category', ''),
                 tags=tags_list,
-                metadata={'needs_resync': needs_update}  # Flag en metadata
+                metadata={
+                    'needs_resync': needs_update,
+                    'shop': shop  # Add shop from request
+                }
             )
         
         return {
@@ -1216,6 +1278,45 @@ async def get_products_comparison():
 
 class ConfigModel(BaseModel):
     config: dict
+
+@app.post("/api/config/initialize")
+async def initialize_config(request: dict):
+    """Initialize default configuration for new shop installation"""
+    try:
+        shop = request.get("shop")
+        
+        if not shop:
+            raise HTTPException(status_code=400, detail="Shop domain is required")
+        
+        # Check if config already exists
+        existing_config = await db_client.get_app_config(key=shop)
+        
+        if existing_config and len(existing_config) > 0:
+            return {"status": "already_exists", "message": "Configuration already initialized"}
+        
+        # Default configuration
+        default_config = {
+            "ai_search_enabled": True,
+            "autocorrect": True,
+            "results_limit": "10",
+            "similarity_threshold": 70,
+            "exclude_out_of_stock": False,
+            "exclude_archived": False,
+            "language": "en"
+        }
+        
+        # Save default configuration
+        await db_client.save_app_config(default_config, key=shop)
+        
+        return {
+            "status": "success",
+            "message": "Default configuration initialized",
+            "config": default_config
+        }
+        
+    except Exception as e:
+        print(f"❌ Error initializing config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/config")
 async def get_config():
