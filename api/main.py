@@ -396,6 +396,38 @@ async def reset_config():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/admin/reinstall-pgvector")
+async def reinstall_pgvector():
+    """Reinstall pgvector extension in the database"""
+    try:
+        pool = await db_client.connect()
+        async with pool.acquire() as conn:
+            # Check if extension exists
+            ext_check = await conn.fetchval("""
+                SELECT COUNT(*) FROM pg_extension WHERE extname = 'vector'
+            """)
+            
+            if ext_check > 0:
+                # Drop and recreate
+                await conn.execute("DROP EXTENSION vector CASCADE")
+                await conn.execute("CREATE EXTENSION vector")
+                message = "pgvector extension reinstalled"
+            else:
+                # Just create
+                await conn.execute("CREATE EXTENSION vector")
+                message = "pgvector extension installed"
+            
+            # Verify it works
+            test = await conn.fetchval("SELECT '[1,2,3]'::vector <=> '[1,2,3]'::vector")
+            
+            return {
+                "status": "success",
+                "message": message,
+                "test_query": test
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to install pgvector: {str(e)}")
+
 # ==================
 # TYPO CORRECTION
 # ==================
