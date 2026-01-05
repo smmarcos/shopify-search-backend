@@ -732,11 +732,17 @@ async def search_products(request: SearchRequest):
             shop=shop  # ✅ Shop del request, no hardcoded
         )
         
+        print(f"🔍 vector_search returned {len(results)} results")
+        if results:
+            print(f"📊 First result: {results[0].get('title', 'N/A')} - similarity: {results[0].get('similarity_score', 0):.4f}")
+        
         # 5. Filter by similarity threshold
         filtered_results = [
             r for r in results 
             if r.get('similarity_score', 0) >= similarity_threshold
         ]
+        
+        print(f"🎯 After threshold filter ({similarity_threshold:.2f}): {len(filtered_results)} results")
         
         # 6. Apply config filters
         if config.get("exclude_archived", True):

@@ -1,0 +1,115 @@
+{
+  "shop": "test.myshopify.com",
+  "products": [
+    {
+      "product_id": "test_001",
+      "title": "Camiseta Básica de Algodón - Blanca",
+      "description": "Camiseta de manga corta confeccionada en algodón 100% orgánico. Cuello redondo y corte regular. Perfecta para el día a día. Disponible en tallas S a XXL. Lavable a máquina.",
+      "price": 19.99,
+      "vendor": "BasicWear",
+      "product_type": "Ropa",
+      "tags": "camiseta, básicos, algodón, blanco, manga corta, unisex",
+      "variants": [{"id": "var_001", "title": "M / Blanco", "price": "19.99"}],
+      "images": []
+    },
+    {
+      "product_id": "test_002",
+      "title": "Vaqueros Slim Fit Azul Oscuro",
+      "description": "Pantalones vaqueros de corte slim con elastano para mayor comodidad. Cinco bolsillos clásicos. Tela denim de alta calidad con acabado stonewashed. Cierre de botón y cremallera.",
+      "price": 49.99,
+      "vendor": "DenimCo",
+      "product_type": "Ropa",
+      "tags": "vaqueros, jeans, slim fit, denim, azul, pantalones",
+      "variants": [{"id": "var_002", "title": "32 / Azul", "price": "49.99"}],
+      "images": []
+    },
+    {
+      "product_id": "test_003",
+      "title": "Zapatillas Deportivas Running - Negro/Rojo",
+      "description": "Zapatillas de running con suela de goma EVA para máxima amortiguación. Upper transpirable en mesh. Perfectas para corredores de cualquier nivel. Diseño ergonómico y ligero.",
+      "price": 79.99,
+      "vendor": "SportMax",
+      "product_type": "Calzado",
+      "tags": "zapatillas, running, deporte, calzado, negro, rojo",
+      "variants": [{"id": "var_003", "title": "42 / Negro", "price": "79.99"}],
+      "images": []
+    },
+    {
+      "product_id": "test_004",
+      "title": "Portátil Gaming 15.6\" - Intel i7 16GB RAM",
+      "description": "Ordenador portátil gaming con procesador Intel Core i7 de 11ª generación, 16GB RAM DDR4, SSD 512GB, tarjeta gráfica NVIDIA RTX 3060. Pantalla Full HD 144Hz. Teclado retroiluminado RGB.",
+      "price": 1299.99,
+      "vendor": "TechPro",
+      "product_type": "Electrónica",
+      "tags": "portátil, gaming, ordenador, laptop, intel, nvidia",
+      "variants": [{"id": "var_004", "title": "i7/16GB/512GB", "price": "1299.99"}],
+      "images": []
+    },
+    {
+      "product_id": "test_005",
+      "title": "Auriculares Bluetooth Inalámbricos con Cancelación de Ruido",
+      "description": "Auriculares over-ear con cancelación activa de ruido (ANC). Batería de 30 horas. Bluetooth 5.0 con aptX HD. Controles táctiles. Estuche de transporte incluido. Sonido Hi-Fi.",
+      "price": 149.99,
+      "vendor": "AudioTech",
+      "product_type": "Electrónica",
+      "tags": "auriculares, bluetooth, inalámbricos, ANC, audio, música",
+      "variants": [{"id": "var_005", "title": "Negro", "price": "149.99"}],
+      "images": []
+    },
+    {
+      "product_id": "test_006",
+      "title": "Mochila Urbana Antirrobo con Puerto USB",
+      "description": "Mochila con compartimento acolchado para portátil de hasta 15.6\". Puerto USB externo para cargar dispositivos. Bolsillo oculto antirrobo en la espalda. Material impermeable. 25L de capacidad.",
+      "price": 39.99,
+      "vendor": "BagStyle",
+      "product_type": "Accesorios",
+      "tags": "mochila, portátil, USB, antirrobo, impermeable, urbana",
+      "variants": [{"id": "var_006", "title": "Negro", "price": "39.99"}],
+      "images": []
+    },
+    {
+      "product_id": "test_007",
+      "title": "Reloj Inteligente Smartwatch - Monitor Salud y Deporte",
+      "description": "Smartwatch con pantalla AMOLED de 1.4\". Monitor de frecuencia cardíaca, SpO2 y sueño. GPS integrado. Resistente al agua IP68. Más de 100 modos deportivos. Batería 7 días.",
+      "price": 199.99,
+      "vendor": "FitTech",
+      "product_type": "Electrónica",
+      "tags": "smartwatch, reloj, deporte, salud, fitness, GPS",
+      "variants": [{"id": "var_007", "title": "Negro", "price": "199.99"}],
+      "images": []
+    },
+    {
+      "product_id": "test_008",
+      "title": "Cafetera Express Profesional - 15 Bares",
+      "description": "Máquina de café espresso con bomba de presión de 15 bares. Vaporizador para espumar leche. Bandeja calienta tazas. Depósito de agua extraíble 1.5L. Cappuccino, latte, espresso perfecto.",
+      "price": 89.99,
+      "vendor": "HomeBar",
+      "product_type": "Hogar",
+      "tags": "cafetera, café, espresso, cappuccino, electrodoméstico",
+      "variants": [{"id": "var_008", "title": "Acero", "price": "89.99"}],
+      "images": []
+    },
+    {
+      "product_id": "test_009",
+      "title": "Sartén Antiadherente 28cm - Inducción",
+      "description": "Sartén profesional con revestimiento antiadherente de titanio. Compatible con todo tipo de cocinas incluyendo inducción. Mango ergonómico termorresistente. Fácil limpieza. Libre de PFOA.",
+      "price": 34.99,
+      "vendor": "ChefMaster",
+      "product_type": "Hogar",
+      "tags": "sartén, cocina, antiadherente, inducción, utensilios",
+      "variants": [{"id": "var_009", "title": "28cm", "price": "34.99"}],
+      "images": []
+    },
+    {
+      "product_id": "test_010",
+      "title": "Libro: Cien Años de Soledad - Gabriel García Márquez",
+      "description": "Edición especial conmemorativa de la obra maestra de García Márquez. Tapa dura con sobrecubierta ilustrada. Incluye prólogo del autor y notas del editor. 432 páginas. Literatura latinoamericana.",
+      "price": 24.99,
+      "vendor": "LibrosPlus",
+      "product_type": "Libros",
+      "tags": "libro, literatura, novela, García Márquez, español, ficción",
+      "variants": [{"id": "var_010", "title": "Tapa Dura", "price": "24.99"}],
+      "images": []
+    }
+  ]
+}
