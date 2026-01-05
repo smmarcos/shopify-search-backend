@@ -313,9 +313,10 @@ async def search_products(request: SearchRequest):
                 print(f"✏️ Query corrected: '{original_query}' → '{corrected_query}'")
         
         # 2. Get results limit from config
-        max_results = int(config.get("results_limit", "10"))
+        results_limit = config.get("results_limit", "10")
+        max_results = 1000 if results_limit == "unlimited" else int(results_limit)
         if request.max_results:
-            max_results = min(request.max_results, max_results)
+            max_results = min(request.max_results, max_results) if results_limit != "unlimited" else max_results
         
         # 3. Get similarity threshold from config
         similarity_threshold = config.get("similarity_threshold", 70) / 100.0
