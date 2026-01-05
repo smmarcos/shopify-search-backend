@@ -417,13 +417,29 @@ async def reinstall_pgvector():
                 await conn.execute("CREATE EXTENSION vector")
                 message = "pgvector extension installed"
             
+            # Recreate the table to fix column types
+            await conn.execute("""
+                ALTER TABLE product_embeddings 
+                ALTER COLUMN embedding TYPE vector(1536) USING embedding::vector(1536)
+            """)
+            
             # Verify it works
             test = await conn.fetchval("SELECT '[1,2,3]'::vector <=> '[1,2,3]'::vector")
+            
+            # Test with actual data
+            test_product = await conn.fetchrow("""
+                SELECT product_id, 
+                       1 - (embedding <=> '[1,2,3]'::vector) as similarity
+                FROM product_embeddings 
+                WHERE embedding IS NOT NULL 
+                LIMIT 1
+            """)
             
             return {
                 "status": "success",
                 "message": message,
-                "test_query": test
+                "test_query": test,
+                "test_product": test_product['product_id'] if test_product else None
             }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to install pgvector: {str(e)}")
