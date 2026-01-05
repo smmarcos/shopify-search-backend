@@ -423,23 +423,24 @@ async def reinstall_pgvector():
                 ALTER COLUMN embedding TYPE vector(1536) USING embedding::vector(1536)
             """)
             
-            # Verify it works
-            test = await conn.fetchval("SELECT '[1,2,3]'::vector <=> '[1,2,3]'::vector")
+            # Verify it works with correct dimensions
+            test = await conn.fetchval("SELECT '[1,2,3]'::vector(3) <=> '[1,2,3]'::vector(3)")
             
             # Test with actual data
             test_product = await conn.fetchrow("""
                 SELECT product_id, 
-                       1 - (embedding <=> '[1,2,3]'::vector) as similarity
+                       1 - (embedding <=> CAST($1 AS vector)) as similarity
                 FROM product_embeddings 
                 WHERE embedding IS NOT NULL 
                 LIMIT 1
-            """)
+            """, "[" + ",".join(["0.0"] * 1536) + "]")
             
             return {
                 "status": "success",
                 "message": message,
-                "test_query": test,
-                "test_product": test_product['product_id'] if test_product else None
+                "test_query": float(test),
+                "test_product": test_product['product_id'] if test_product else None,
+                "test_similarity": float(test_product['similarity']) if test_product else None
             }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to install pgvector: {str(e)}")
