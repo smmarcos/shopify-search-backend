@@ -58,6 +58,93 @@ async def root():
         "status": "running"
     }
 
+@app.post("/api/admin/fix-subscriptions")
+async def fix_subscriptions():
+    """Temporary endpoint to fix billing_cycle_end NULL values"""
+    try:
+        pool = await db_client.connect()
+        async with pool.acquire() as conn:
+            # Update function
+            await conn.execute("""
+                CREATE OR REPLACE FUNCTION check_plan_limits(p_shop_domain VARCHAR, p_usage_type VARCHAR)
+                RETURNS JSONB AS $$
+                DECLARE
+                    v_subscription RECORD;
+                    v_plan RECORD;
+                    v_current_products INTEGER;
+                    v_current_searches INTEGER;
+                    v_result JSONB;
+                BEGIN
+                    SELECT * INTO v_subscription 
+                    FROM user_subscriptions 
+                    WHERE shop_domain = p_shop_domain;
+                    
+                    IF NOT FOUND THEN
+                        INSERT INTO user_subscriptions (shop_domain, plan_id, billing_cycle_start, billing_cycle_end)
+                        SELECT p_shop_domain, id, CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days' 
+                        FROM subscription_plans WHERE name = 'free'
+                        RETURNING * INTO v_subscription;
+                    END IF;
+                    
+                    SELECT * INTO v_plan 
+                    FROM subscription_plans 
+                    WHERE id = v_subscription.plan_id;
+                    
+                    SELECT COUNT(*) INTO v_current_products 
+                    FROM product_embeddings 
+                    WHERE metadata->>'shop' = p_shop_domain;
+                    
+                    SELECT COALESCE(SUM(usage_count), 0) INTO v_current_searches
+                    FROM usage_tracking 
+                    WHERE shop_domain = p_shop_domain 
+                    AND usage_type = 'search' 
+                    AND usage_date >= v_subscription.search_reset_date;
+                    
+                    v_result = jsonb_build_object(
+                        'shop', p_shop_domain,
+                        'plan', v_plan.name,
+                        'current_products', v_current_products,
+                        'max_products', v_plan.max_products,
+                        'current_searches', v_current_searches,
+                        'max_searches', v_plan.max_searches_per_month,
+                        'products_exceeded', CASE 
+                            WHEN v_plan.max_products = -1 THEN false
+                            ELSE v_current_products > v_plan.max_products
+                        END,
+                        'searches_exceeded', CASE 
+                            WHEN v_plan.max_searches_per_month = -1 THEN false
+                            ELSE v_current_searches >= v_plan.max_searches_per_month
+                        END,
+                        'upgrade_required', CASE 
+                            WHEN v_plan.max_products != -1 AND v_current_products > v_plan.max_products THEN true
+                            WHEN v_plan.max_searches_per_month != -1 AND v_current_searches >= v_plan.max_searches_per_month THEN true
+                            ELSE false
+                        END
+                    );
+                    
+                    RETURN v_result;
+                END;
+                $$ LANGUAGE plpgsql;
+            """)
+            
+            # Fix NULL values
+            result = await conn.execute("""
+                UPDATE user_subscriptions 
+                SET billing_cycle_end = CURRENT_DATE + INTERVAL '30 days',
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE billing_cycle_end IS NULL
+            """)
+            
+            rows_updated = int(result.split()[-1]) if result else 0
+            
+            return {
+                "status": "success",
+                "message": "Subscriptions fixed",
+                "rows_updated": rows_updated
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ==================
 # TYPO CORRECTION
 # ==================
