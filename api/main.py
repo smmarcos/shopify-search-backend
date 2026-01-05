@@ -923,6 +923,70 @@ async def get_extension_status():
             "message": "Could not determine extension status"
         }
 
+@app.post("/api/extension/ping")
+async def extension_ping(request: dict):
+    """Receive ping from theme extension to track when it's active"""
+    try:
+        shop = request.get('shop', '').replace('https://', '').replace('http://', '').split('/')[0]
+        
+        if not shop:
+            return {"status": "error", "message": "Shop domain required"}
+        
+        pool = await db_client.connect()
+        async with pool.acquire() as conn:
+            # Update or insert extension_last_active timestamp in app_settings
+            await conn.execute("""
+                INSERT INTO app_settings (key, value, updated_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (key) 
+                DO UPDATE SET value = $2, updated_at = NOW()
+            """, f"{shop}:extension_last_active", request.get('timestamp', ''))
+            
+        return {
+            "status": "success",
+            "message": "Extension ping registered"
+        }
+    except Exception as e:
+        print(f"❌ Extension ping error: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/extension/status")
+async def get_extension_status_new(shop: str):
+    """Check if theme extension is active based on recent pings"""
+    try:
+        pool = await db_client.connect()
+        async with pool.acquire() as conn:
+            # Get last ping timestamp
+            last_ping = await conn.fetchval("""
+                SELECT updated_at FROM app_settings 
+                WHERE key = $1
+            """, f"{shop}:extension_last_active")
+            
+            if not last_ping:
+                return {
+                    "active": False,
+                    "status": "never_activated",
+                    "message": "Extension has never been activated"
+                }
+            
+            # Check if ping was within last 48 hours
+            from datetime import datetime, timedelta
+            is_active = (datetime.now() - last_ping) < timedelta(hours=48)
+            
+            return {
+                "active": is_active,
+                "last_seen": last_ping.isoformat(),
+                "status": "active" if is_active else "inactive",
+                "message": "Extension is active" if is_active else "Extension was active but not seen recently"
+            }
+    except Exception as e:
+        print(f"❌ Extension status check error: {e}")
+        return {
+            "active": False,
+            "status": "error",
+            "message": str(e)
+        }
+
 @app.get("/api/sync-status")
 async def get_sync_status():
     """Get sync status for smart sync UI"""
