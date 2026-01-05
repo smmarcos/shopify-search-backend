@@ -66,8 +66,9 @@ class DatabaseClient:
         
         # Build WHERE clause dynamically
         where_conditions = []
-        params = [embedding_str]  # Start with embedding_str as $1
-        param_counter = 2  # Next param is $2
+        # Pass embedding TWICE (for SELECT and ORDER BY) to avoid asyncpg type inference issues
+        params = [embedding_str, embedding_str]  # $1 and $2 for embedding
+        param_counter = 3  # Next param is $3
         
         if max_price is not None:
             where_conditions.append(f"price <= ${param_counter}")
@@ -92,7 +93,7 @@ class DatabaseClient:
         
         where_clause = "WHERE " + " AND ".join(where_conditions)
         
-        # Build query exactly like test-search (which works)
+        # Use $1 for SELECT, $2 for ORDER BY (both same embedding)
         query = f"""
             SELECT 
                 product_id,
@@ -106,13 +107,13 @@ class DatabaseClient:
                 1 - (embedding <=> CAST($1 AS vector)) as similarity_score
             FROM product_embeddings
             {where_clause}
-            ORDER BY embedding <=> CAST($1 AS vector)
+            ORDER BY embedding <=> CAST($2 AS vector)
             LIMIT {limit}
         """
         
         print(f"📝 Query params count: {len(params)}, params: {[type(p).__name__ for p in params]}")
         print(f"🔍 WHERE clause: {where_clause}")
-        print(f"📄 Query using $1 for embedding (as parameter), limit={limit}")
+        print(f"📄 Using $1 and $2 for embedding (passed twice to avoid type inference issue)")
         
         async with pool.acquire() as conn:
             rows = await conn.fetch(query, *params)
