@@ -145,6 +145,62 @@ async def fix_subscriptions():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/admin/check-schema")
+async def check_schema():
+    """Check embedding column type and fix if needed"""
+    try:
+        pool = await db_client.connect()
+        async with pool.acquire() as conn:
+            # Check current column type
+            column_info = await conn.fetchrow("""
+                SELECT 
+                    column_name, 
+                    data_type, 
+                    udt_name
+                FROM information_schema.columns 
+                WHERE table_name = 'product_embeddings' 
+                AND column_name = 'embedding'
+            """)
+            
+            result = {
+                "column": column_info['column_name'] if column_info else None,
+                "data_type": column_info['data_type'] if column_info else None,
+                "udt_name": column_info['udt_name'] if column_info else None,
+                "is_vector": column_info['udt_name'] == 'vector' if column_info else False
+            }
+            
+            # If it's not vector type, fix it
+            if column_info and column_info['udt_name'] != 'vector':
+                # Drop and recreate with correct type
+                await conn.execute("""
+                    ALTER TABLE product_embeddings 
+                    DROP COLUMN IF EXISTS embedding
+                """)
+                
+                await conn.execute("""
+                    ALTER TABLE product_embeddings 
+                    ADD COLUMN embedding vector(1536)
+                """)
+                
+                # Recreate index
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS product_embeddings_vector_idx 
+                    ON product_embeddings 
+                    USING ivfflat (embedding vector_cosine_ops)
+                    WITH (lists = 100)
+                """)
+                
+                result["fixed"] = True
+                result["message"] = "Column type fixed from text to vector"
+            else:
+                result["fixed"] = False
+                result["message"] = "Column type is already correct (vector)"
+            
+            return result
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ==================
 # TYPO CORRECTION
 # ==================
