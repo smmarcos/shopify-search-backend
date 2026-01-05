@@ -116,7 +116,13 @@ class DatabaseClient:
         print(f"📄 Query built with string concatenation (not f-string)")
         
         async with pool.acquire() as conn:
-            rows = await conn.fetch(query, *params)
+            try:
+                rows = await conn.fetch(query, *params)
+                print(f"✅ Query executed successfully, returned {len(rows)} rows")
+            except Exception as e:
+                print(f"❌ Query execution failed: {str(e)}")
+                print(f"❌ Query was: {query[:500]}")
+                raise
         
         # Parse metadata JSON strings back to dicts
         import json
@@ -127,6 +133,7 @@ class DatabaseClient:
                 row_dict['metadata'] = json.loads(row_dict['metadata'])
             results.append(row_dict)
         
+        print(f"📦 Returning {len(results)} results")
         return results
     
     async def get_product_by_id(self, product_id: str) -> Optional[Dict]:

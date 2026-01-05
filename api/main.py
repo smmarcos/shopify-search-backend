@@ -82,7 +82,7 @@ async def fix_subscriptions():
                     IF NOT FOUND THEN
                         INSERT INTO user_subscriptions (shop_domain, plan_id, billing_cycle_start, billing_cycle_end)
                         SELECT p_shop_domain, id, CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days' 
-                        FROM subscription_plans WHERE name = 'free'
+                        FROM subscription_plans WHERE name = 'starter'
                         RETURNING * INTO v_subscription;
                     END IF;
                     
@@ -1014,17 +1014,17 @@ async def get_subscription_status(shop: str):
                 SELECT id FROM user_subscriptions WHERE shop_domain = $1
             """, shop)
             
-            # If no subscription exists, create free plan
+            # If no subscription exists, create starter plan
             if not existing:
-                print(f"🔄 No subscription found for {shop}, initializing free plan...")
+                print(f"🔄 No subscription found for {shop}, initializing starter plan...")
                 
-                # Get free plan ID
-                free_plan = await conn.fetchrow("""
-                    SELECT id FROM subscription_plans WHERE name = 'free' AND active = true
+                # Get starter plan ID
+                starter_plan = await conn.fetchrow("""
+                    SELECT id FROM subscription_plans WHERE name = 'starter' AND active = true
                 """)
                 
-                if free_plan:
-                    # Insert new subscription with free plan
+                if starter_plan:
+                    # Insert new subscription with starter plan
                     await conn.execute("""
                         INSERT INTO user_subscriptions (
                             shop_domain, 
@@ -1034,9 +1034,9 @@ async def get_subscription_status(shop: str):
                             created_at
                         )
                         VALUES ($1, $2, NOW(), NOW() + INTERVAL '1 month', NOW())
-                    """, shop, free_plan['id'])
+                    """, shop, starter_plan['id'])
                     
-                    print(f"✅ Auto-initialized free subscription for {shop}")
+                    print(f"✅ Auto-initialized starter subscription for {shop}")
             
             # Now check plan limits using database function
             result = await conn.fetchval("""
@@ -1046,14 +1046,14 @@ async def get_subscription_status(shop: str):
             return result
     except Exception as e:
         print(f"❌ Subscription status error: {e}")
-        # Return default free plan if error
+        # Return default starter plan if error
         return {
             "shop": shop,
-            "plan": "free",
+            "plan": "starter",
             "current_products": 0,
             "max_products": 50,
             "current_searches": 0,
-            "max_searches": 250,
+            "max_searches": 300,
             "products_exceeded": False,
             "searches_exceeded": False,
             "upgrade_required": False
@@ -1155,7 +1155,7 @@ async def track_usage(request: dict):
 
 @app.post("/api/subscription/initialize")
 async def initialize_subscription(request: dict):
-    """Initialize free plan for new shop installation"""
+    """Initialize starter plan for new shop installation"""
     try:
         shop = request.get("shop")
         
@@ -1172,15 +1172,15 @@ async def initialize_subscription(request: dict):
             if existing:
                 return {"status": "already_exists", "message": "Subscription already initialized"}
             
-            # Get free plan ID
-            free_plan = await conn.fetchrow("""
-                SELECT id FROM subscription_plans WHERE name = 'free' AND active = true
+            # Get starter plan ID
+            starter_plan = await conn.fetchrow("""
+                SELECT id FROM subscription_plans WHERE name = 'starter' AND active = true
             """)
             
-            if not free_plan:
-                raise HTTPException(status_code=500, detail="Free plan not found in database")
+            if not starter_plan:
+                raise HTTPException(status_code=500, detail="Starter plan not found in database")
             
-            # Insert new subscription with free plan
+            # Insert new subscription with starter plan
             await conn.execute("""
                 INSERT INTO user_subscriptions (
                     shop_domain, 
@@ -1190,14 +1190,14 @@ async def initialize_subscription(request: dict):
                     created_at
                 )
                 VALUES ($1, $2, NOW(), NOW() + INTERVAL '1 month', NOW())
-            """, shop, free_plan['id'])
+            """, shop, starter_plan['id'])
             
-            print(f"✅ Initialized free subscription for {shop}")
+            print(f"✅ Initialized starter subscription for {shop}")
             return {
                 "status": "success", 
-                "message": "Free subscription initialized",
+                "message": "Starter subscription initialized",
                 "shop": shop,
-                "plan": "free"
+                "plan": "starter"
             }
             
     except Exception as e:

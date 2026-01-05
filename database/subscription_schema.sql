@@ -13,11 +13,11 @@ CREATE TABLE IF NOT EXISTS subscription_plans (
 
 -- Insertar planes definidos
 INSERT INTO subscription_plans (name, price, max_products, max_searches_per_month, features) VALUES
-('free', 0.00, 50, 250, '{"ai_search": true, "typo_correction": true, "basic_analytics": true}'),
-('basic', 7.00, 1000, 2500, '{"ai_search": true, "typo_correction": true, "analytics": true, "email_support": true}'),
-('pro', 17.00, 5000, 10000, '{"ai_search": true, "typo_correction": true, "advanced_analytics": true, "merchandising": true, "ab_testing": true}'),
-('business', 35.00, 25000, 50000, '{"ai_search": true, "typo_correction": true, "advanced_analytics": true, "merchandising": true, "api_access": true, "priority_support": true}'),
-('enterprise', 99.00, -1, -1, '{"ai_search": true, "typo_correction": true, "unlimited": true, "dedicated_support": true, "custom_integrations": true}');
+('starter', 0.00, 50, 300, '{"ai_search": true, "semantic_search": true, "typo_correction": true, "basic_analytics": true, "email_support": true}'),
+('launch', 9.00, 1000, 3000, '{"ai_search": true, "semantic_search": true, "typo_correction": true, "analytics": true, "user_intent": true, "email_support": true}'),
+('growth', 19.00, 5000, 12000, '{"ai_search": true, "semantic_search": true, "typo_correction": true, "advanced_analytics": true, "user_intent": true, "merchandising": true, "email_support": true}'),
+('scale', 49.00, 25000, 60000, '{"ai_search": true, "semantic_search": true, "typo_correction": true, "advanced_analytics": true, "user_intent": true, "merchandising": true, "api_access": true, "priority_support": true}'),
+('enterprise', 149.00, -1, -1, '{"ai_search": true, "semantic_search": true, "typo_correction": true, "unlimited": true, "user_intent": true, "merchandising": true, "dedicated_support": true, "custom_integrations": true, "api_access": true, "priority_support": true}');
 
 -- Tabla de suscripciones de usuarios
 CREATE TABLE IF NOT EXISTS user_subscriptions (
