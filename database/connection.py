@@ -114,8 +114,10 @@ class DatabaseClient:
             LIMIT $2
         """
         
+        print(f"📝 Query params count: {len(params)}, params: {[type(p).__name__ for p in params]}")
+        
         async with pool.acquire() as conn:
-            rows = await conn.fetch(query, embedding_str, *params[1:])
+            rows = await conn.fetch(query, *params)  # Fixed: use *params instead of embedding_str, *params[1:]
         
         # Parse metadata JSON strings back to dicts
         import json
