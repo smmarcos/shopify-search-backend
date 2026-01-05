@@ -492,7 +492,7 @@ class DatabaseClient:
             "ai_search_enabled": True,
             "autocorrect": True,
             "results_limit": "10",
-            "similarity_threshold": 70,
+            "similarity_threshold": 50,  # Lowered from 70 for better recall
             "exclude_out_of_stock": False,
             "exclude_archived": False,
             "language": "es"
