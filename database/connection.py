@@ -491,7 +491,7 @@ class DatabaseClient:
         return {
             "ai_search_enabled": True,
             "autocorrect": True,
-            "results_limit": "10",
+            "results_limit": "unlimited",  # Changed from "10" to match Shopify default behavior
             "similarity_threshold": 50,  # Lowered from 70 for better recall
             "exclude_out_of_stock": False,
             "exclude_archived": False,

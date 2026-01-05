@@ -362,6 +362,40 @@ async def test_search(query: str = "camiseta blanca", shop: str = "test.myshopif
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/admin/get-config")
+async def get_current_config():
+    """Get current config from database"""
+    try:
+        config = await db_client.get_app_config()
+        return {
+            "config": config,
+            "source": "database" if config else "default"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/admin/reset-config")
+async def reset_config():
+    """Reset config to defaults with better values"""
+    try:
+        pool = await db_client.connect()
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                DELETE FROM app_settings WHERE key = 'ai_search'
+            """)
+        
+        return {
+            "status": "success",
+            "message": "Config reset to defaults",
+            "new_defaults": {
+                "similarity_threshold": 50,
+                "results_limit": "unlimited",
+                "ai_search_enabled": True
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ==================
 # TYPO CORRECTION
 # ==================
