@@ -87,15 +87,10 @@ class DatabaseClient:
             params.append(shop)
             param_counter += 1
         
-        where_clause = ""
-        if where_conditions:
-            where_clause = "WHERE " + " AND ".join(where_conditions)
-        else:
-            where_clause = "WHERE embedding IS NOT NULL"
+        # Always ensure embedding is not NULL
+        where_conditions.append("embedding IS NOT NULL")
         
-        # If we have conditions AND need to check for embedding
-        if where_conditions:
-            where_clause += " AND embedding IS NOT NULL"
+        where_clause = "WHERE " + " AND ".join(where_conditions)
         
         query = f"""
             SELECT 
