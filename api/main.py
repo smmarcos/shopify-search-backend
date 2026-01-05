@@ -398,7 +398,7 @@ async def reset_config():
 
 @app.post("/api/admin/reinstall-pgvector")
 async def reinstall_pgvector():
-    """Reinstall pgvector extension in the database"""
+    """Reinstall pgvector extension and recreate table"""
     try:
         pool = await db_client.connect()
         async with pool.acquire() as conn:
@@ -417,33 +417,58 @@ async def reinstall_pgvector():
                 await conn.execute("CREATE EXTENSION vector")
                 message = "pgvector extension installed"
             
-            # Recreate the table to fix column types
+            # Recreate the product_embeddings table
             await conn.execute("""
-                ALTER TABLE product_embeddings 
-                ALTER COLUMN embedding TYPE vector(1536) USING embedding::vector(1536)
+                CREATE TABLE IF NOT EXISTS product_embeddings (
+                    id SERIAL PRIMARY KEY,
+                    product_id VARCHAR(255) UNIQUE NOT NULL,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    price DECIMAL(10, 2),
+                    vendor VARCHAR(255),
+                    category VARCHAR(255),
+                    tags TEXT[],
+                    embedding vector(1536),
+                    metadata JSONB,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Recreate indexes
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS product_embeddings_vector_idx 
+                ON product_embeddings 
+                USING ivfflat (embedding vector_cosine_ops)
+                WITH (lists = 100)
+            """)
+            
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS product_embeddings_product_id_idx 
+                ON product_embeddings (product_id)
+            """)
+            
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS product_embeddings_metadata_idx 
+                ON product_embeddings USING GIN (metadata)
             """)
             
             # Verify it works with correct dimensions
             test = await conn.fetchval("SELECT '[1,2,3]'::vector(3) <=> '[1,2,3]'::vector(3)")
             
-            # Test with actual data
-            test_product = await conn.fetchrow("""
-                SELECT product_id, 
-                       1 - (embedding <=> CAST($1 AS vector)) as similarity
-                FROM product_embeddings 
-                WHERE embedding IS NOT NULL 
-                LIMIT 1
-            """, "[" + ",".join(["0.0"] * 1536) + "]")
+            # Count products
+            product_count = await conn.fetchval("SELECT COUNT(*) FROM product_embeddings")
             
             return {
                 "status": "success",
-                "message": message,
+                "message": message + " and table recreated",
                 "test_query": float(test),
-                "test_product": test_product['product_id'] if test_product else None,
-                "test_similarity": float(test_product['similarity']) if test_product else None
+                "product_count": product_count,
+                "note": "Table recreated. You need to re-sync products from Shopify to regenerate embeddings."
             }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to install pgvector: {str(e)}")
+        import traceback
+        raise HTTPException(status_code=500, detail=f"Failed: {str(e)}\n{traceback.format_exc()}")
 
 # ==================
 # TYPO CORRECTION
