@@ -103,10 +103,10 @@ class DatabaseClient:
                 category,
                 tags,
                 metadata,
-                1 - (embedding <=> '{embedding_str}'::vector) as similarity_score
+                1 - (embedding <=> CAST('{embedding_str}' AS vector)) as similarity_score
             FROM product_embeddings
             {where_clause}
-            ORDER BY embedding <=> '{embedding_str}'::vector
+            ORDER BY embedding <=> CAST('{embedding_str}' AS vector)
             LIMIT {limit}
         """
         
