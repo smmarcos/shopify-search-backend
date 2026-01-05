@@ -585,87 +585,49 @@ async def search_products(request: SearchRequest):
         # 3. Get similarity threshold from config
         similarity_threshold = config.get("similarity_threshold", 70) / 100.0
         
-        # 4. Run agent with corrected query
-        query_for_agent = f"{corrected_query} (max price: ${request.max_price})" if request.max_price else corrected_query
-        
-        result = await Runner.run(
-            search_agent,
-            input=query_for_agent
+        # 4. Direct vector search (más rápido y permite pasar shop correctamente)
+        query_embedding = await embedding_gen.generate_embedding(corrected_query)
+        results = await db_client.vector_search(
+            query_embedding=query_embedding,
+            limit=max_results,
+            max_price=request.max_price,
+            in_stock_only=config.get("exclude_out_of_stock", False),
+            shop=shop  # ✅ Shop del request, no hardcoded
         )
         
-        # Parse agent output (it returns JSON string from tool)
-        import json
-        try:
-            # Extract JSON from agent's final output
-            output = str(result.final_output)
-            if "```json" in output:
-                json_str = output.split("```json")[1].split("```")[0].strip()
-            elif "{" in output:
-                json_str = output[output.find("{"):output.rfind("}")+1]
-            else:
-                json_str = output
-            
-            data = json.loads(json_str)
-            results = data.get("results", [])
-            
-            # 5. Filter by similarity threshold
+        # 5. Filter by similarity threshold
+        filtered_results = [
+            r for r in results 
+            if r.get('similarity_score', 0) >= similarity_threshold
+        ]
+        
+        # 6. Apply config filters
+        if config.get("exclude_archived", True):
             filtered_results = [
-                r for r in results 
-                if r.get('similarity_score', 0) >= similarity_threshold
+                r for r in filtered_results 
+                if not r.get('metadata', {}).get('archived', False)
             ]
-            
-            # 6. Apply config filters
-            if config.get("exclude_out_of_stock", False):
-                filtered_results = [
-                    r for r in filtered_results 
-                    if r.get('in_stock', True)
-                ]
-            
-            if config.get("exclude_archived", True):
-                filtered_results = [
-                    r for r in filtered_results 
-                    if not r.get('archived', False)
-                ]
-            
-            return SearchResponse(
-                results=filtered_results[:max_results],
-                total=len(filtered_results),
-                query=corrected_query  # ✅ Devolver query CORREGIDA, no la original
-            )
-        except:
-            # If agent didn't return JSON, do direct search
-            query_embedding = await embedding_gen.generate_embedding(corrected_query)  # Usar corrected_query
-            results = await db_client.vector_search(
-                query_embedding=query_embedding,
-                limit=max_results,
-                max_price=request.max_price,
-                shop=shop
-            )
-            
-            # Apply similarity threshold
-            filtered_results = [
-                r for r in results 
-                if r.get('similarity_score', 0) >= similarity_threshold
-            ]
-            
-            products = [
-                {
-                    "id": r['product_id'],
-                    "title": r['title'],
-                    "description": r['description'],
-                    "price": float(r['price']) if r['price'] else 0.0,
-                    "vendor": r['vendor'],
-                    "handle": r.get('metadata', {}).get('handle', '') if isinstance(r.get('metadata'), dict) else '',
-                    "similarity_score": float(r.get('similarity_score', 0))
-                }
-                for r in filtered_results
-            ]
-            
-            return SearchResponse(
-                results=products,
-                total=len(products),
-                query=corrected_query  # ✅ Devolver corregida también aquí
-            )
+        
+        # 7. Format results
+        products = [
+            {
+                "id": r['product_id'],
+                "title": r['title'],
+                "description": r['description'],
+                "price": float(r['price']) if r['price'] else 0.0,
+                "vendor": r['vendor'],
+                "category": r.get('category', ''),
+                "handle": r.get('metadata', {}).get('handle', '') if isinstance(r.get('metadata'), dict) else '',
+                "similarity_score": float(r.get('similarity_score', 0))
+            }
+            for r in filtered_results
+        ]
+        
+        return SearchResponse(
+            results=products,
+            total=len(products),
+            query=corrected_query
+        )
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
