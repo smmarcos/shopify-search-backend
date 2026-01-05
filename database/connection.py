@@ -62,7 +62,7 @@ class DatabaseClient:
         
         # Build WHERE clause dynamically
         where_conditions = []
-        params = [query_embedding, limit]
+        params = [embedding_str, limit]  # Use embedding_str, not query_embedding
         param_counter = 3
         
         if max_price is not None:
