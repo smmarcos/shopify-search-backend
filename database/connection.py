@@ -40,7 +40,8 @@ class DatabaseClient:
         limit: int = 10,
         max_price: Optional[float] = None,
         min_price: Optional[float] = None,
-        in_stock_only: bool = False
+        in_stock_only: bool = False,
+        shop: Optional[str] = None
     ) -> List[Dict]:
         """
         Perform vector similarity search
@@ -51,6 +52,7 @@ class DatabaseClient:
             max_price: Filter by maximum price
             min_price: Filter by minimum price
             in_stock_only: Only return in-stock products
+            shop: Filter by shop domain
         
         Returns:
             List of products with similarity scores
@@ -77,6 +79,11 @@ class DatabaseClient:
         
         if in_stock_only:
             where_conditions.append("(metadata->>'in_stock')::boolean = true")
+        
+        if shop:
+            where_conditions.append(f"metadata->>'shop' = ${param_counter}")
+            params.append(shop)
+            param_counter += 1
         
         where_clause = ""
         if where_conditions:

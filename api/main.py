@@ -422,7 +422,8 @@ async def vector_search(query: str, max_results: int = 5, max_price: float = Non
             query_embedding=query_embedding,
             limit=max_results,
             max_price=max_price,
-            in_stock_only=True
+            in_stock_only=True,
+            shop="test.myshopify.com"  # TODO: Get from request context
         )
         
         # Track analytics
@@ -637,7 +638,8 @@ async def search_products(request: SearchRequest):
             results = await db_client.vector_search(
                 query_embedding=query_embedding,
                 limit=max_results,
-                max_price=request.max_price
+                max_price=request.max_price,
+                shop=shop
             )
             
             # Apply similarity threshold
