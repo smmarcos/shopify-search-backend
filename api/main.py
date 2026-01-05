@@ -201,6 +201,74 @@ async def check_schema():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/admin/generate-missing-embeddings")
+async def generate_missing_embeddings(request: dict):
+    """Force generate embeddings for all products without them"""
+    try:
+        shop = request.get('shop', 'test.myshopify.com')
+        
+        pool = await db_client.connect()
+        async with pool.acquire() as conn:
+            # Get products without embeddings
+            products = await conn.fetch("""
+                SELECT product_id, title, description, vendor, category, tags
+                FROM product_embeddings
+                WHERE embedding IS NULL
+                AND (metadata->>'shop' = $1 OR $1 = '')
+            """, shop)
+            
+            if not products:
+                return {
+                    "status": "success",
+                    "message": "No products without embeddings",
+                    "generated": 0
+                }
+            
+            print(f"🧠 Generating embeddings for {len(products)} products...")
+            embedding_gen = EmbeddingGenerator()
+            generated = 0
+            
+            for prod in products:
+                try:
+                    # Create text for embedding
+                    text_parts = [prod['title']]
+                    if prod['description']:
+                        text_parts.append(prod['description'])
+                    if prod['category']:
+                        text_parts.append(f"Category: {prod['category']}")
+                    if prod['tags']:
+                        text_parts.append(f"Tags: {', '.join(prod['tags'])}")
+                    
+                    text = " ".join(text_parts)
+                    
+                    # Generate embedding
+                    embedding = await embedding_gen.generate_embedding(text)
+                    
+                    # Save embedding
+                    embedding_str = f"[{','.join(map(str, embedding))}]"
+                    await conn.execute("""
+                        UPDATE product_embeddings
+                        SET embedding = $1::vector, updated_at = CURRENT_TIMESTAMP
+                        WHERE product_id = $2
+                    """, embedding_str, prod['product_id'])
+                    
+                    generated += 1
+                    print(f"   ✓ {generated}/{len(products)} - {prod['product_id']}")
+                    
+                except Exception as e:
+                    print(f"   ✗ Error with {prod['product_id']}: {e}")
+            
+            return {
+                "status": "success",
+                "message": f"Generated {generated} embeddings",
+                "total_processed": len(products),
+                "generated": generated,
+                "failed": len(products) - generated
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ==================
 # TYPO CORRECTION
 # ==================
