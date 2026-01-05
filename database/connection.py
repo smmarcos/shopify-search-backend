@@ -92,11 +92,7 @@ class DatabaseClient:
         
         where_clause = "WHERE " + " AND ".join(where_conditions)
         
-        # Add limit parameter
-        limit_param = f"${param_counter}"
-        params.append(limit)
-        
-        # Use string interpolation for embedding to avoid asyncpg type inference issues
+        # Use string interpolation for embedding AND limit to avoid asyncpg type inference issues
         query = f"""
             SELECT 
                 product_id,
@@ -111,12 +107,12 @@ class DatabaseClient:
             FROM product_embeddings
             {where_clause}
             ORDER BY embedding <=> '{embedding_str}'::vector
-            LIMIT {limit_param}
+            LIMIT {limit}
         """
         
         print(f"📝 Query params count: {len(params)}, params: {[type(p).__name__ for p in params]}")
         print(f"🔍 WHERE clause: {where_clause}")
-        print(f"📄 Embedding interpolated, params start at: ${1 if params else 'none'}")
+        print(f"📄 Embedding & limit interpolated directly, other params: {len(params)}")
         
         async with pool.acquire() as conn:
             rows = await conn.fetch(query, *params)
