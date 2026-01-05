@@ -1355,10 +1355,55 @@ async def compare_shopify_products(request: dict):
                 }
             )
         
+        # IMPORTANT: Generate embeddings for products that don't have them
+        print(f"🧠 Generating embeddings for new products...")
+        pool = await db_client.connect()
+        async with pool.acquire() as conn:
+            # Get products without embeddings
+            products_without_embeddings = await conn.fetch("""
+                SELECT product_id, title, description, vendor, category, tags
+                FROM product_embeddings
+                WHERE embedding IS NULL
+                AND metadata->>'shop' = $1
+            """, shop)
+            
+            if products_without_embeddings:
+                print(f"   Found {len(products_without_embeddings)} products without embeddings")
+                embedding_gen = EmbeddingGenerator()
+                
+                for prod in products_without_embeddings:
+                    try:
+                        # Create text for embedding
+                        text_parts = [prod['title']]
+                        if prod['description']:
+                            text_parts.append(prod['description'])
+                        if prod['category']:
+                            text_parts.append(f"Category: {prod['category']}")
+                        if prod['tags']:
+                            text_parts.append(f"Tags: {', '.join(prod['tags'])}")
+                        
+                        text = " ".join(text_parts)
+                        
+                        # Generate embedding
+                        embedding = await embedding_gen.generate_embedding(text)
+                        
+                        # Save embedding
+                        embedding_str = f"[{','.join(map(str, embedding))}]"
+                        await conn.execute("""
+                            UPDATE product_embeddings
+                            SET embedding = $1::vector, updated_at = CURRENT_TIMESTAMP
+                            WHERE product_id = $2
+                        """, embedding_str, prod['product_id'])
+                        
+                        print(f"   ✓ Generated embedding for {prod['product_id']}")
+                    except Exception as e:
+                        print(f"   ✗ Error generating embedding for {prod['product_id']}: {e}")
+        
         return {
             "success": True,
             "total_shopify": len(shopify_products),
             "updated_products": len(updated_products),
+            "embeddings_generated": len(products_without_embeddings) if products_without_embeddings else 0,
             "changes_detected": updated_products,
             "message": f"Productos sincronizados: {len(shopify_products)} productos. {len(updated_products)} con cambios detectados."
         }
