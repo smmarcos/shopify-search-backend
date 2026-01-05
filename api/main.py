@@ -321,6 +321,47 @@ async def debug_products(shop: str = "test.myshopify.com"):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/admin/test-search")
+async def test_search(query: str = "camiseta blanca", shop: str = "test.myshopify.com"):
+    """Test vector search with raw similarity scores"""
+    try:
+        # Generate embedding for query
+        query_embedding = await embedding_gen.generate_embedding(query)
+        embedding_str = f"[{','.join(map(str, query_embedding))}]"
+        
+        pool = await db_client.connect()
+        async with pool.acquire() as conn:
+            # Raw search without filters to see all scores
+            results = await conn.fetch("""
+                SELECT 
+                    product_id,
+                    title,
+                    1 - (embedding <=> CAST($1 AS vector)) as similarity_score,
+                    metadata->>'shop' as shop_value
+                FROM product_embeddings
+                WHERE embedding IS NOT NULL
+                AND (metadata->>'shop' = $2 OR $2 = '')
+                ORDER BY embedding <=> CAST($1 AS vector)
+                LIMIT 10
+            """, embedding_str, shop)
+            
+            return {
+                "query": query,
+                "shop": shop,
+                "results": [
+                    {
+                        "product_id": r['product_id'],
+                        "title": r['title'],
+                        "similarity_score": float(r['similarity_score']),
+                        "shop_value": r['shop_value']
+                    }
+                    for r in results
+                ]
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ==================
 # TYPO CORRECTION
 # ==================
