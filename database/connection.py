@@ -66,9 +66,8 @@ class DatabaseClient:
         
         # Build WHERE clause dynamically
         where_conditions = []
-        # Pass embedding TWICE (for SELECT and ORDER BY) to avoid asyncpg type inference issues
-        params = [embedding_str, embedding_str]  # $1 and $2 for embedding
-        param_counter = 3  # Next param is $3
+        params = [embedding_str]  # $1 for embedding
+        param_counter = 2  # Next param is $2
         
         if max_price is not None:
             where_conditions.append(f"price <= ${param_counter}")
@@ -91,10 +90,11 @@ class DatabaseClient:
         # Always ensure embedding is not NULL
         where_conditions.append("embedding IS NOT NULL")
         
-        where_clause = "WHERE " + " AND ".join(where_conditions)
+        # Build complete WHERE clause
+        where_clause = " AND ".join(where_conditions)
         
-        # Use $1 for SELECT, $2 for ORDER BY (both same embedding)
-        query = f"""
+        # Build query as complete string (not f-string interpolation)
+        query = """
             SELECT 
                 product_id,
                 title,
@@ -106,14 +106,14 @@ class DatabaseClient:
                 metadata,
                 1 - (embedding <=> CAST($1 AS vector)) as similarity_score
             FROM product_embeddings
-            {where_clause}
-            ORDER BY embedding <=> CAST($2 AS vector)
-            LIMIT {limit}
+            WHERE """ + where_clause + """
+            ORDER BY embedding <=> CAST($1 AS vector)
+            LIMIT """ + str(limit) + """
         """
         
         print(f"📝 Query params count: {len(params)}, params: {[type(p).__name__ for p in params]}")
         print(f"🔍 WHERE clause: {where_clause}")
-        print(f"📄 Using $1 and $2 for embedding (passed twice to avoid type inference issue)")
+        print(f"📄 Query built with string concatenation (not f-string)")
         
         async with pool.acquire() as conn:
             rows = await conn.fetch(query, *params)
