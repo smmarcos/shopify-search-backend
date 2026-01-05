@@ -269,6 +269,58 @@ async def generate_missing_embeddings(request: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/admin/debug-products")
+async def debug_products(shop: str = "test.myshopify.com"):
+    """Debug endpoint to see product status"""
+    try:
+        pool = await db_client.connect()
+        async with pool.acquire() as conn:
+            # Get all products for this shop
+            products = await conn.fetch("""
+                SELECT 
+                    product_id,
+                    title,
+                    embedding IS NULL as missing_embedding,
+                    metadata->>'shop' as shop_value,
+                    updated_at
+                FROM product_embeddings
+                WHERE metadata->>'shop' = $1 OR $1 = ''
+                ORDER BY updated_at DESC
+                LIMIT 20
+            """, shop)
+            
+            # Get counts
+            total = await conn.fetchval("""
+                SELECT COUNT(*) FROM product_embeddings
+                WHERE metadata->>'shop' = $1 OR $1 = ''
+            """, shop)
+            
+            without_embeddings = await conn.fetchval("""
+                SELECT COUNT(*) FROM product_embeddings
+                WHERE embedding IS NULL
+                AND (metadata->>'shop' = $1 OR $1 = '')
+            """, shop)
+            
+            return {
+                "shop": shop,
+                "total_products": total,
+                "without_embeddings": without_embeddings,
+                "with_embeddings": total - without_embeddings,
+                "sample_products": [
+                    {
+                        "product_id": p['product_id'],
+                        "title": p['title'],
+                        "missing_embedding": p['missing_embedding'],
+                        "shop_value": p['shop_value'],
+                        "updated_at": p['updated_at'].isoformat() if p['updated_at'] else None
+                    }
+                    for p in products
+                ]
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ==================
 # TYPO CORRECTION
 # ==================
