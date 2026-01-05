@@ -402,24 +402,16 @@ async def reinstall_pgvector():
     try:
         pool = await db_client.connect()
         async with pool.acquire() as conn:
-            # Check if extension exists
-            ext_check = await conn.fetchval("""
-                SELECT COUNT(*) FROM pg_extension WHERE extname = 'vector'
-            """)
+            # Drop everything first
+            await conn.execute("DROP TABLE IF EXISTS product_embeddings CASCADE")
+            await conn.execute("DROP EXTENSION IF EXISTS vector CASCADE")
             
-            if ext_check > 0:
-                # Drop and recreate
-                await conn.execute("DROP EXTENSION vector CASCADE")
-                await conn.execute("CREATE EXTENSION vector")
-                message = "pgvector extension reinstalled"
-            else:
-                # Just create
-                await conn.execute("CREATE EXTENSION vector")
-                message = "pgvector extension installed"
+            # Create extension
+            await conn.execute("CREATE EXTENSION vector")
             
             # Recreate the product_embeddings table
             await conn.execute("""
-                CREATE TABLE IF NOT EXISTS product_embeddings (
+                CREATE TABLE product_embeddings (
                     id SERIAL PRIMARY KEY,
                     product_id VARCHAR(255) UNIQUE NOT NULL,
                     title TEXT NOT NULL,
@@ -437,34 +429,30 @@ async def reinstall_pgvector():
             
             # Recreate indexes
             await conn.execute("""
-                CREATE INDEX IF NOT EXISTS product_embeddings_vector_idx 
+                CREATE INDEX product_embeddings_vector_idx 
                 ON product_embeddings 
                 USING ivfflat (embedding vector_cosine_ops)
                 WITH (lists = 100)
             """)
             
             await conn.execute("""
-                CREATE INDEX IF NOT EXISTS product_embeddings_product_id_idx 
+                CREATE INDEX product_embeddings_product_id_idx 
                 ON product_embeddings (product_id)
             """)
             
             await conn.execute("""
-                CREATE INDEX IF NOT EXISTS product_embeddings_metadata_idx 
+                CREATE INDEX product_embeddings_metadata_idx 
                 ON product_embeddings USING GIN (metadata)
             """)
             
-            # Verify it works with correct dimensions
+            # Verify it works
             test = await conn.fetchval("SELECT '[1,2,3]'::vector(3) <=> '[1,2,3]'::vector(3)")
-            
-            # Count products
-            product_count = await conn.fetchval("SELECT COUNT(*) FROM product_embeddings")
             
             return {
                 "status": "success",
-                "message": message + " and table recreated",
+                "message": "pgvector extension and table recreated successfully",
                 "test_query": float(test),
-                "product_count": product_count,
-                "note": "Table recreated. You need to re-sync products from Shopify to regenerate embeddings."
+                "note": "Table is empty. Re-sync products from Shopify to regenerate embeddings."
             }
     except Exception as e:
         import traceback
