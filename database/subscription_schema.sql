@@ -78,8 +78,9 @@ BEGIN
     
     -- Si no existe suscripción, crear una gratuita
     IF NOT FOUND THEN
-        INSERT INTO user_subscriptions (shop_domain, plan_id)
-        SELECT p_shop_domain, id FROM subscription_plans WHERE name = 'free'
+        INSERT INTO user_subscriptions (shop_domain, plan_id, billing_cycle_start, billing_cycle_end)
+        SELECT p_shop_domain, id, CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days' 
+        FROM subscription_plans WHERE name = 'free'
         RETURNING * INTO v_subscription;
     END IF;
     
