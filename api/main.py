@@ -1435,6 +1435,77 @@ async def uninstall_cleanup(request: dict):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/gdpr/customer-redact")
+async def gdpr_customer_redact(request: dict):
+    """GDPR: Redact customer-specific data"""
+    try:
+        shop = request.get("shop")
+        customer_id = request.get("customer_id")
+        customer_email = request.get("customer_email")
+        
+        if not shop:
+            raise HTTPException(status_code=400, detail="Shop domain required")
+        
+        print(f"📋 GDPR Customer Redaction: shop={shop}, customer_id={customer_id}")
+        
+        # SearchAI doesn't store customer PII - only anonymous search queries
+        # If you add customer tracking in the future, delete it here
+        
+        return {
+            "status": "success",
+            "message": "No customer PII stored by SearchAI",
+            "shop": shop,
+            "customer_id": customer_id
+        }
+        
+    except Exception as e:
+        print(f"❌ Customer redaction error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/gdpr/shop-redact")
+async def gdpr_shop_redact(request: dict):
+    """GDPR: Complete shop data redaction (same as uninstall but for GDPR)"""
+    try:
+        shop = request.get("shop")
+        
+        if not shop:
+            raise HTTPException(status_code=400, detail="Shop domain required")
+        
+        print(f"🗑️ GDPR Shop Redaction for: {shop}")
+        
+        pool = await db_client.connect()
+        deleted_counts = {}
+        
+        async with pool.acquire() as conn:
+            # Delete ALL shop data
+            result = await conn.execute("DELETE FROM usage_tracking WHERE shop_domain = $1", shop)
+            deleted_counts['usage_tracking'] = result.split()[1] if result else '0'
+            
+            result = await conn.execute("DELETE FROM user_subscriptions WHERE shop_domain = $1", shop)
+            deleted_counts['subscriptions'] = result.split()[1] if result else '0'
+            
+            result = await conn.execute("DELETE FROM product_embeddings WHERE metadata->>'shop' = $1", shop)
+            deleted_counts['products'] = result.split()[1] if result else '0'
+            
+            result = await conn.execute("DELETE FROM app_settings WHERE key = $1 OR key LIKE $2", shop, f"{shop}_%")
+            deleted_counts['settings'] = result.split()[1] if result else '0'
+        
+        print(f"✅ GDPR Shop Redaction completed for {shop}: {deleted_counts}")
+        
+        return {
+            "status": "success",
+            "message": f"All data permanently deleted for {shop}",
+            "shop": shop,
+            "deleted": deleted_counts,
+            "gdpr_compliant": True
+        }
+        
+    except Exception as e:
+        print(f"❌ Shop redaction error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/extension-status")
 async def get_extension_status():
     """Check if theme extension is active by looking for recent searches"""
