@@ -66,8 +66,8 @@ class DatabaseClient:
         
         # Build WHERE clause dynamically
         where_conditions = []
-        params = [embedding_str, limit]  # Use embedding_str, not query_embedding
-        param_counter = 3
+        params = []  # Don't include embedding_str in params - we'll interpolate it
+        param_counter = 1  # Start at $1 since embedding is interpolated
         
         if max_price is not None:
             where_conditions.append(f"price <= ${param_counter}")
@@ -92,6 +92,11 @@ class DatabaseClient:
         
         where_clause = "WHERE " + " AND ".join(where_conditions)
         
+        # Add limit parameter
+        limit_param = f"${param_counter}"
+        params.append(limit)
+        
+        # Use string interpolation for embedding to avoid asyncpg type inference issues
         query = f"""
             SELECT 
                 product_id,
@@ -102,19 +107,19 @@ class DatabaseClient:
                 category,
                 tags,
                 metadata,
-                1 - (embedding <=> CAST($1 AS vector)) as similarity_score
+                1 - (embedding <=> '{embedding_str}'::vector) as similarity_score
             FROM product_embeddings
             {where_clause}
-            ORDER BY embedding <=> CAST($1 AS vector)
-            LIMIT $2
+            ORDER BY embedding <=> '{embedding_str}'::vector
+            LIMIT {limit_param}
         """
         
         print(f"📝 Query params count: {len(params)}, params: {[type(p).__name__ for p in params]}")
         print(f"🔍 WHERE clause: {where_clause}")
-        print(f"📄 Full query: {query[:300]}...")
+        print(f"📄 Embedding interpolated, params start at: ${1 if params else 'none'}")
         
         async with pool.acquire() as conn:
-            rows = await conn.fetch(query, *params)  # Fixed: use *params instead of embedding_str, *params[1:]
+            rows = await conn.fetch(query, *params)
         
         # Parse metadata JSON strings back to dicts
         import json
