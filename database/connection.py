@@ -401,14 +401,14 @@ class DatabaseClient:
         """Update a product's embedding in the database and clear needs_resync flag"""
         pool = await self.connect()
         
-        # For UPDATE operations, keep as Python list - pgvector codec handles it
-        # (INSERT/SELECT can use NumPy arrays directly, but UPDATE needs Python list)
-        if isinstance(embedding, np.ndarray):
-            embedding = embedding.tolist()
+        # Convert to NumPy array - pgvector codec handles the rest
+        if isinstance(embedding, list):
+            embedding = np.array(embedding, dtype=np.float32)
         
         print(f"🔧 Updating embedding for {product_id}")
-        print(f"🔧 Embedding type: {type(embedding)}, length: {len(embedding) if isinstance(embedding, list) else 'N/A'}")
+        print(f"🔧 Embedding type: {type(embedding)}, shape: {embedding.shape if hasattr(embedding, 'shape') else 'N/A'}")
         
+        # Use $2::vector cast to tell PostgreSQL the type explicitly
         query = """
             UPDATE product_embeddings 
             SET embedding = $2::vector, 
@@ -418,11 +418,9 @@ class DatabaseClient:
             RETURNING id
         """
         
-        # Convert list to PostgreSQL vector format string
-        embedding_str = '[' + ','.join(map(str, embedding)) + ']'
-        
         async with pool.acquire() as conn:
-            result = await conn.fetchval(query, product_id, embedding_str)
+            # Pass NumPy array directly - pgvector codec registered in init_connection handles it
+            result = await conn.fetchval(query, product_id, embedding)
             
         # Check if any row was updated
         if result is None:
