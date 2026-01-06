@@ -198,7 +198,7 @@ class DatabaseClient:
         query = """
             INSERT INTO product_embeddings 
                 (product_id, shop_domain, title, description, price, vendor, category, tags, embedding, metadata)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector, $10::jsonb)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
             ON CONFLICT (product_id, shop_domain) 
             DO UPDATE SET
                 title = EXCLUDED.title,
@@ -213,8 +213,9 @@ class DatabaseClient:
             RETURNING id
         """
         
-        # Convert embedding list to string format for pgvector (or NULL if None)
-        embedding_str = f"[{','.join(map(str, embedding))}]" if embedding else None
+        # CRITICAL: Convert Python list to NumPy array for pgvector asyncpg codec
+        if embedding and isinstance(embedding, list):
+            embedding = np.array(embedding, dtype=np.float32)
         
         # Convert metadata dict to JSON string
         import json
@@ -231,7 +232,7 @@ class DatabaseClient:
                 vendor,
                 category,
                 tags or [],
-                embedding_str,
+                embedding,
                 metadata_str
             )
         
@@ -427,23 +428,23 @@ class DatabaseClient:
         """Update a product's embedding in the database and clear needs_resync flag"""
         pool = await self.connect()
         
-        # Convert embedding list to string format for pgvector
-        embedding_str = f"[{','.join(map(str, embedding))}]"
+        # CRITICAL: Convert Python list to NumPy array for pgvector asyncpg codec
+        if isinstance(embedding, list):
+            embedding = np.array(embedding, dtype=np.float32)
         
         print(f"🔧 Updating embedding for {product_id}")
-        print(f"🔧 Embedding length: {len(embedding)}")
-        print(f"🔧 Embedding str preview: {embedding_str[:100]}...")
+        print(f"🔧 Embedding type: {type(embedding)}, shape: {embedding.shape if hasattr(embedding, 'shape') else 'N/A'}")
         
         query = """
             UPDATE product_embeddings 
-            SET embedding = $2::vector, 
+            SET embedding = $2, 
                 metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{needs_resync}', 'false'::jsonb),
                 updated_at = CURRENT_TIMESTAMP
             WHERE product_id = $1
         """
         
         async with pool.acquire() as conn:
-            result = await conn.execute(query, product_id, embedding_str)
+            result = await conn.execute(query, product_id, embedding)
             
         # Check if any row was updated
         rows_updated = int(result.split()[-1])
