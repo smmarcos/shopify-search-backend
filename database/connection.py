@@ -75,7 +75,7 @@ class DatabaseClient:
         params = [query_embedding, limit]
         param_counter = 3
         
-        # Add shop_domain filter for multi-tenant
+        # Add shop_domain filter for multi-tenant (BEFORE other filters)
         if shop:
             where_conditions.append(f"shop_domain = ${param_counter}")
             params.append(shop)
@@ -94,15 +94,9 @@ class DatabaseClient:
         if in_stock_only:
             where_conditions.append("(metadata->>'in_stock')::boolean = true")
         
-        where_clause = ""
+        where_clause = "WHERE embedding IS NOT NULL"
         if where_conditions:
-            where_clause = "WHERE " + " AND ".join(where_conditions)
-        else:
-            where_clause = "WHERE embedding IS NOT NULL"
-        
-        # If we have conditions AND need to check for embedding
-        if where_conditions:
-            where_clause += " AND embedding IS NOT NULL"
+            where_clause += " AND " + " AND ".join(where_conditions)
         
         query = f"""
             SELECT 
@@ -114,10 +108,10 @@ class DatabaseClient:
                 category,
                 tags,
                 metadata,
-                1 - (embedding <=> $1) as similarity_score
+                1 - (embedding::vector <=> $1::vector) as similarity_score
             FROM product_embeddings
             {where_clause}
-            ORDER BY embedding <=> $1
+            ORDER BY embedding::vector <=> $1::vector
             LIMIT $2
         """
         
