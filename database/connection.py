@@ -114,10 +114,10 @@ class DatabaseClient:
                 category,
                 tags,
                 metadata,
-                1 - (embedding <=> $1::vector) as similarity_score
+                1 - (embedding <=> $1) as similarity_score
             FROM product_embeddings
             {where_clause}
-            ORDER BY embedding <=> $1::vector
+            ORDER BY embedding <=> $1
             LIMIT $2
         """
         
