@@ -99,6 +99,54 @@ async def update_check_limits_function(secret: str = ""):
     except Exception as e:
         raise HTTPException(500, f"Error updating function: {str(e)}")
 
+@app.post("/api/admin/migrate-shop-domain")
+async def migrate_shop_domain(secret: str = ""):
+    """Add shop_domain columns to tables for multi-tenant support"""
+    expected_secret = os.getenv("ADMIN_SECRET", "update-function-2026")
+    if secret != expected_secret:
+        raise HTTPException(403, "Forbidden")
+    
+    try:
+        pool = await db_client.connect()
+        async with pool.acquire() as conn:
+            # Add shop_domain to product_embeddings
+            await conn.execute("""
+                ALTER TABLE product_embeddings 
+                ADD COLUMN IF NOT EXISTS shop_domain VARCHAR(255)
+            """)
+            
+            # Add shop_domain to search_analytics
+            await conn.execute("""
+                ALTER TABLE search_analytics 
+                ADD COLUMN IF NOT EXISTS shop_domain VARCHAR(255)
+            """)
+            
+            # Create indexes
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS product_embeddings_shop_idx 
+                ON product_embeddings (shop_domain)
+            """)
+            
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS search_analytics_shop_idx 
+                ON search_analytics (shop_domain)
+            """)
+            
+            # Drop old unique constraint and create composite one
+            await conn.execute("""
+                ALTER TABLE product_embeddings 
+                DROP CONSTRAINT IF EXISTS product_embeddings_product_id_key
+            """)
+            
+            await conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS product_embeddings_product_shop_idx 
+                ON product_embeddings (product_id, shop_domain)
+            """)
+            
+            return {"success": True, "message": "Migration completed: shop_domain columns added"}
+    except Exception as e:
+        raise HTTPException(500, f"Migration error: {str(e)}")
+
 # ==================
 # GDPR COMPLIANCE WEBHOOKS
 # ==================
@@ -1909,11 +1957,15 @@ async def simulate_unsync(request: dict):
         }
 
 @app.get("/api/analytics")
-async def get_analytics(days: int = 7):
-    """Get search analytics"""
+async def get_analytics(days: int = 7, shop: str = None):
+    """Get search analytics filtered by shop"""
     try:
-        stats = await db_client.get_search_stats(days=days)
+        if not shop:
+            raise HTTPException(400, "Missing shop parameter")
+        stats = await db_client.get_search_stats(days=days, shop_domain=shop)
         return stats
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Analytics error: {e}")
         import traceback

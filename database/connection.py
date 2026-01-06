@@ -172,6 +172,7 @@ class DatabaseClient:
         self,
         product_id: str,
         title: str,
+        shop_domain: str,
         embedding: Optional[List[float]] = None,
         description: Optional[str] = None,
         price: Optional[float] = None,
@@ -185,9 +186,9 @@ class DatabaseClient:
         
         query = """
             INSERT INTO product_embeddings 
-                (product_id, title, description, price, vendor, category, tags, embedding, metadata)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector, $9::jsonb)
-            ON CONFLICT (product_id) 
+                (product_id, shop_domain, title, description, price, vendor, category, tags, embedding, metadata)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector, $10::jsonb)
+            ON CONFLICT (product_id, shop_domain) 
             DO UPDATE SET
                 title = EXCLUDED.title,
                 description = EXCLUDED.description,
@@ -212,6 +213,7 @@ class DatabaseClient:
             result = await conn.fetchval(
                 query,
                 product_id,
+                shop_domain,
                 title,
                 description,
                 price,
@@ -304,9 +306,14 @@ class DatabaseClient:
         async with pool.acquire() as conn:
             await conn.execute(query_sql, query, results_count, session_id)
     
-    async def get_search_stats(self, days: int = 7) -> Dict:
-        """Get comprehensive search analytics for last N days"""
+    async def get_search_stats(self, days: int = 7, shop_domain: str = None) -> Dict:
+        """Get comprehensive search analytics for last N days filtered by shop"""
         pool = await self.connect()
+        
+        # Build WHERE clause
+        where_clause = f"WHERE created_at >= NOW() - INTERVAL '{days} days'"
+        if shop_domain:
+            where_clause += f" AND shop_domain = '{shop_domain}'"
         
         async with pool.acquire() as conn:
             # 1. DAILY STATS - Searches by day  
@@ -318,7 +325,7 @@ class DatabaseClient:
                     COUNT(*) FILTER (WHERE results_count = 0) as searches_no_results,
                     ROUND(AVG(COALESCE(results_count, 0)), 2) as avg_results
                 FROM search_analytics
-                WHERE created_at >= NOW() - INTERVAL '{days} days'
+                {where_clause}
                 GROUP BY DATE(created_at)
                 ORDER BY date DESC
             """
@@ -332,7 +339,7 @@ class DatabaseClient:
                     ROUND(AVG(COALESCE(results_count, 0)), 2) as avg_results,
                     MAX(created_at) as last_searched
                 FROM search_analytics
-                WHERE created_at >= NOW() - INTERVAL '{days} days'
+                {where_clause}
                 GROUP BY query
                 ORDER BY search_count DESC
                 LIMIT 20
@@ -347,7 +354,7 @@ class DatabaseClient:
                     COALESCE(results_count, 0) as results_count,
                     created_at
                 FROM search_analytics
-                WHERE created_at >= NOW() - INTERVAL '{days} days'
+                {where_clause}
                 ORDER BY created_at DESC
                 LIMIT 50
             """
@@ -361,7 +368,7 @@ class DatabaseClient:
                     COUNT(*) FILTER (WHERE COALESCE(results_count, 0) = 0) as no_results_count,
                     ROUND(AVG(COALESCE(results_count, 0)), 2) as avg_results
                 FROM search_analytics
-                WHERE created_at >= NOW() - INTERVAL '{days} days'
+                {where_clause}
             """
             summary = await conn.fetchrow(summary_query)
         
