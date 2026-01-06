@@ -60,14 +60,17 @@ class DatabaseClient:
         print(f"🔍 vector_search called - query_embedding type: {type(query_embedding)}, len: {len(query_embedding) if isinstance(query_embedding, list) else 'N/A'}")
         pool = await self.connect()
         
-        # Convert embedding list to string format for pgvector
+        # Convert embedding list to string format for pgvector (without brackets for direct cast)
+        # PostgreSQL vector type expects: [1.0,2.0,3.0] format
         embedding_str = f"[{','.join(map(str, query_embedding))}]"
-        print(f"✅ embedding_str created, first 50 chars: {embedding_str[:50]}")
+        print(f"✅ embedding_str created: {embedding_str[:80]}...")
         
         # Build WHERE clause dynamically
         where_conditions = []
-        params = [embedding_str]  # $1 for embedding
-        param_counter = 2  # Next param is $2
+        params = []
+        param_counter = 1  # Start from $1 for first filter param
+        
+        # NOTE: embedding is NOT a param - it's embedded in query to avoid type issues
         
         if max_price is not None:
             where_conditions.append(f"price <= ${param_counter}")
@@ -93,8 +96,9 @@ class DatabaseClient:
         # Build complete WHERE clause
         where_clause = " AND ".join(where_conditions)
         
-        # Build query as complete string (not f-string interpolation)
-        query = """
+        # Build query with embedding embedded directly (not as parameter to avoid type issues)
+        # pgvector CAST() works better with literal strings than parameterized text
+        query = f"""
             SELECT 
                 product_id,
                 title,
@@ -104,16 +108,16 @@ class DatabaseClient:
                 category,
                 tags,
                 metadata,
-                1 - (embedding <=> CAST($1 AS vector)) as similarity_score
+                1 - (embedding <=> '{embedding_str}'::vector) as similarity_score
             FROM product_embeddings
-            WHERE """ + where_clause + """
-            ORDER BY embedding <=> CAST($1 AS vector)
-            LIMIT """ + str(limit) + """
+            WHERE {where_clause}
+            ORDER BY embedding <=> '{embedding_str}'::vector
+            LIMIT {limit}
         """
         
-        print(f"📝 Query params count: {len(params)}, params: {[type(p).__name__ for p in params]}")
+        print(f"📝 Query params count: {len(params)}, types: {[type(p).__name__ for p in params]}")
         print(f"🔍 WHERE clause: {where_clause}")
-        print(f"📄 Query built with string concatenation (not f-string)")
+        print(f"📄 Embedding embedded as literal, not param")
         
         async with pool.acquire() as conn:
             try:
