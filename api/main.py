@@ -110,41 +110,66 @@ async def migrate_shop_domain(secret: str = ""):
         pool = await db_client.connect()
         async with pool.acquire() as conn:
             # Add shop_domain to product_embeddings
-            await conn.execute("""
-                ALTER TABLE product_embeddings 
-                ADD COLUMN IF NOT EXISTS shop_domain VARCHAR(255)
-            """)
+            try:
+                await conn.execute("""
+                    ALTER TABLE product_embeddings 
+                    ADD COLUMN shop_domain VARCHAR(255)
+                """)
+                print("✅ Added shop_domain to product_embeddings")
+            except Exception as e:
+                print(f"⚠️ product_embeddings column exists or error: {str(e)}")
             
             # Add shop_domain to search_analytics
-            await conn.execute("""
-                ALTER TABLE search_analytics 
-                ADD COLUMN IF NOT EXISTS shop_domain VARCHAR(255)
-            """)
+            try:
+                await conn.execute("""
+                    ALTER TABLE search_analytics 
+                    ADD COLUMN shop_domain VARCHAR(255)
+                """)
+                print("✅ Added shop_domain to search_analytics")
+            except Exception as e:
+                print(f"⚠️ search_analytics column exists or error: {str(e)}")
             
             # Create indexes
-            await conn.execute("""
-                CREATE INDEX IF NOT EXISTS product_embeddings_shop_idx 
-                ON product_embeddings (shop_domain)
-            """)
+            try:
+                await conn.execute("""
+                    CREATE INDEX product_embeddings_shop_idx 
+                    ON product_embeddings (shop_domain)
+                """)
+                print("✅ Created index on product_embeddings.shop_domain")
+            except Exception as e:
+                print(f"⚠️ Index exists or error: {str(e)}")
             
-            await conn.execute("""
-                CREATE INDEX IF NOT EXISTS search_analytics_shop_idx 
-                ON search_analytics (shop_domain)
-            """)
+            try:
+                await conn.execute("""
+                    CREATE INDEX search_analytics_shop_idx 
+                    ON search_analytics (shop_domain)
+                """)
+                print("✅ Created index on search_analytics.shop_domain")
+            except Exception as e:
+                print(f"⚠️ Index exists or error: {str(e)}")
             
             # Drop old unique constraint and create composite one
-            await conn.execute("""
-                ALTER TABLE product_embeddings 
-                DROP CONSTRAINT IF EXISTS product_embeddings_product_id_key
-            """)
+            try:
+                await conn.execute("""
+                    ALTER TABLE product_embeddings 
+                    DROP CONSTRAINT IF EXISTS product_embeddings_product_id_key
+                """)
+                print("✅ Dropped old unique constraint")
+            except Exception as e:
+                print(f"⚠️ Constraint drop error: {str(e)}")
             
-            await conn.execute("""
-                CREATE UNIQUE INDEX IF NOT EXISTS product_embeddings_product_shop_idx 
-                ON product_embeddings (product_id, shop_domain)
-            """)
+            try:
+                await conn.execute("""
+                    CREATE UNIQUE INDEX product_embeddings_product_shop_idx 
+                    ON product_embeddings (product_id, shop_domain)
+                """)
+                print("✅ Created composite unique index")
+            except Exception as e:
+                print(f"⚠️ Composite index exists or error: {str(e)}")
             
             return {"success": True, "message": "Migration completed: shop_domain columns added"}
     except Exception as e:
+        print(f"❌ Migration error: {str(e)}")
         raise HTTPException(500, f"Migration error: {str(e)}")
 
 # ==================
