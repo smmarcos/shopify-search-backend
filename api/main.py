@@ -46,8 +46,54 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "shopify-search-backend",
-        "version": "1.0.0"
+        "version": "1.0.1"  # Updated with auto-reset
     }
+
+@app.post("/api/admin/update-check-limits-function")
+async def update_check_limits_function(secret: str = ""):
+    """Admin endpoint to update check_plan_limits function with auto-reset"""
+    expected_secret = os.getenv("ADMIN_SECRET", "update-function-2026")
+    if secret != expected_secret:
+        raise HTTPException(403, "Forbidden")
+    
+    try:
+        pool = await db_client.connect()
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                CREATE OR REPLACE FUNCTION check_plan_limits(p_shop_domain VARCHAR, p_usage_type VARCHAR)
+                RETURNS JSONB AS $$
+                DECLARE
+                    v_subscription RECORD; v_plan RECORD; v_current_products INTEGER; v_current_searches INTEGER; v_result JSONB;
+                BEGIN
+                    SELECT * INTO v_subscription FROM user_subscriptions WHERE shop_domain = p_shop_domain;
+                    IF NOT FOUND THEN
+                        INSERT INTO user_subscriptions (shop_domain, plan_id)
+                        SELECT p_shop_domain, id FROM subscription_plans WHERE name = 'starter' RETURNING * INTO v_subscription;
+                    END IF;
+                    IF v_subscription.search_reset_date <= CURRENT_DATE - INTERVAL '30 days' THEN
+                        UPDATE user_subscriptions SET searches_this_month = 0, search_reset_date = CURRENT_DATE,
+                            billing_cycle_start = CURRENT_DATE, billing_cycle_end = CURRENT_DATE + INTERVAL '30 days'
+                        WHERE shop_domain = p_shop_domain;
+                        v_subscription.search_reset_date := CURRENT_DATE; v_subscription.searches_this_month := 0;
+                        DELETE FROM usage_tracking WHERE shop_domain = p_shop_domain AND usage_date < CURRENT_DATE - INTERVAL '90 days';
+                    END IF;
+                    SELECT * INTO v_plan FROM subscription_plans WHERE id = v_subscription.plan_id;
+                    SELECT COUNT(*) INTO v_current_products FROM product_embeddings WHERE metadata->>'shop' = p_shop_domain;
+                    SELECT COALESCE(SUM(usage_count), 0) INTO v_current_searches
+                    FROM usage_tracking WHERE shop_domain = p_shop_domain AND usage_type = 'search' AND usage_date >= v_subscription.search_reset_date;
+                    v_result = jsonb_build_object('shop', p_shop_domain, 'plan', v_plan.name, 'current_products', v_current_products,
+                        'max_products', v_plan.max_products, 'current_searches', v_current_searches, 'max_searches', v_plan.max_searches_per_month,
+                        'products_exceeded', CASE WHEN v_plan.max_products = -1 THEN false ELSE v_current_products > v_plan.max_products END,
+                        'searches_exceeded', CASE WHEN v_plan.max_searches_per_month = -1 THEN false ELSE v_current_searches >= v_plan.max_searches_per_month END,
+                        'upgrade_required', CASE WHEN v_plan.max_products != -1 AND v_current_products > v_plan.max_products THEN true
+                                                 WHEN v_plan.max_searches_per_month != -1 AND v_current_searches >= v_plan.max_searches_per_month THEN true ELSE false END);
+                    RETURN v_result;
+                END;
+                $$ LANGUAGE plpgsql;
+            """)
+            return {"success": True, "message": "Function updated with auto-reset logic"}
+    except Exception as e:
+        raise HTTPException(500, f"Error updating function: {str(e)}")
 
 @app.get("/")
 async def root():
