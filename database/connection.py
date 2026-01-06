@@ -47,7 +47,8 @@ class DatabaseClient:
         limit: int = 10,
         max_price: Optional[float] = None,
         min_price: Optional[float] = None,
-        in_stock_only: bool = False
+        in_stock_only: bool = False,
+        shop: Optional[str] = None
     ) -> List[Dict]:
         """
         Perform vector similarity search
@@ -58,6 +59,7 @@ class DatabaseClient:
             max_price: Filter by maximum price
             min_price: Filter by minimum price
             in_stock_only: Only return in-stock products
+            shop: Shop domain for multi-tenant filtering
         
         Returns:
             List of products with similarity scores
@@ -72,6 +74,12 @@ class DatabaseClient:
         where_conditions = []
         params = [query_embedding, limit]
         param_counter = 3
+        
+        # Add shop_domain filter for multi-tenant
+        if shop:
+            where_conditions.append(f"shop_domain = ${param_counter}")
+            params.append(shop)
+            param_counter += 1
         
         if max_price is not None:
             where_conditions.append(f"price <= ${param_counter}")
