@@ -7,6 +7,7 @@ import json
 from typing import List, Dict, Optional
 import asyncpg
 from asyncpg.pool import Pool
+from pgvector.asyncpg import register_vector
 
 
 class DatabaseClient:
@@ -18,14 +19,19 @@ class DatabaseClient:
         )
     
     async def connect(self):
-        """Create connection pool"""
+        """Create connection pool and register pgvector types"""
         if self.pool is None:
+            async def init(conn):
+                await register_vector(conn)
+            
             self.pool = await asyncpg.create_pool(
                 self.connection_string,
                 min_size=5,
                 max_size=20,
-                command_timeout=60
+                command_timeout=60,
+                init=init
             )
+            print("✅ Database pool created with pgvector support")
         return self.pool
     
     async def disconnect(self):
