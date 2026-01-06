@@ -3,13 +3,17 @@ FastAPI server for SmartSearch AI
 Connects Remix frontend with Python AI backend
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
 import sys
 from typing import Optional, List
 from rapidfuzz import fuzz, process
+import hmac
+import hashlib
+import base64
+import logging
 
 # Add backend to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -94,6 +98,174 @@ async def update_check_limits_function(secret: str = ""):
             return {"success": True, "message": "Function updated with auto-reset logic"}
     except Exception as e:
         raise HTTPException(500, f"Error updating function: {str(e)}")
+
+# ==================
+# GDPR COMPLIANCE WEBHOOKS
+# ==================
+
+def verify_shopify_webhook(body: bytes, hmac_header: str) -> bool:
+    """
+    Verify Shopify webhook HMAC signature
+    Returns True if signature is valid
+    """
+    try:
+        # Get API secret from environment (same as SHOPIFY_API_SECRET)
+        api_secret = os.getenv("SHOPIFY_API_SECRET", "")
+        if not api_secret:
+            logging.warning("SHOPIFY_API_SECRET not set, cannot verify webhook")
+            return False
+        
+        # Calculate HMAC
+        computed_hmac = base64.b64encode(
+            hmac.new(
+                api_secret.encode('utf-8'),
+                body,
+                hashlib.sha256
+            ).digest()
+        ).decode()
+        
+        # Compare with header
+        return hmac.compare_digest(computed_hmac, hmac_header)
+    except Exception as e:
+        logging.error(f"HMAC verification failed: {str(e)}")
+        return False
+
+@app.post("/webhooks/customers/data_request")
+async def customer_data_request(
+    request: Request,
+    x_shopify_hmac_sha256: Optional[str] = Header(None)
+):
+    """
+    GDPR: Customer requests their data
+    Store owner must provide customer data within 30 days
+    """
+    try:
+        body = await request.body()
+        
+        # Verify HMAC signature
+        if not x_shopify_hmac_sha256:
+            raise HTTPException(401, "Missing HMAC header")
+        
+        if not verify_shopify_webhook(body, x_shopify_hmac_sha256):
+            raise HTTPException(401, "Invalid HMAC signature")
+        
+        # Parse payload
+        import json
+        payload = json.loads(body)
+        shop_domain = payload.get("shop_domain")
+        customer = payload.get("customer", {})
+        
+        logging.info(f"[GDPR] Customer data request for shop={shop_domain}, customer={customer.get('id')}")
+        
+        # TODO: Implement logic to gather customer data
+        # For now, we only store:
+        # - Shop domain and owner email in user_subscriptions
+        # - No individual customer PII
+        # - Product embeddings (no customer data)
+        # - Usage tracking (anonymous shop-level data)
+        
+        return {
+            "status": "acknowledged",
+            "message": "Customer data request received. No customer PII stored.",
+            "shop_domain": shop_domain
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error processing customer data request: {str(e)}")
+        raise HTTPException(500, str(e))
+
+@app.post("/webhooks/customers/redact")
+async def customer_redact(
+    request: Request,
+    x_shopify_hmac_sha256: Optional[str] = Header(None)
+):
+    """
+    GDPR: Customer requests deletion of their data
+    Must delete customer data within 30 days (unless legally required to retain)
+    """
+    try:
+        body = await request.body()
+        
+        # Verify HMAC signature
+        if not x_shopify_hmac_sha256:
+            raise HTTPException(401, "Missing HMAC header")
+        
+        if not verify_shopify_webhook(body, x_shopify_hmac_sha256):
+            raise HTTPException(401, "Invalid HMAC signature")
+        
+        # Parse payload
+        import json
+        payload = json.loads(body)
+        shop_domain = payload.get("shop_domain")
+        customer = payload.get("customer", {})
+        
+        logging.info(f"[GDPR] Customer redaction for shop={shop_domain}, customer={customer.get('id')}")
+        
+        # TODO: Implement logic to delete customer data
+        # Current data model:
+        # - We don't store individual customer data
+        # - Only shop-level aggregated analytics
+        # - No action needed unless we add customer tracking
+        
+        return {
+            "status": "acknowledged",
+            "message": "Customer redaction request received. No customer PII to delete.",
+            "shop_domain": shop_domain
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error processing customer redaction: {str(e)}")
+        raise HTTPException(500, str(e))
+
+@app.post("/webhooks/shop/redact")
+async def shop_redact(
+    request: Request,
+    x_shopify_hmac_sha256: Optional[str] = Header(None)
+):
+    """
+    GDPR: Shop uninstalled app, delete all shop data
+    Triggered 48 hours after app uninstallation
+    """
+    try:
+        body = await request.body()
+        
+        # Verify HMAC signature
+        if not x_shopify_hmac_sha256:
+            raise HTTPException(401, "Missing HMAC header")
+        
+        if not verify_shopify_webhook(body, x_shopify_hmac_sha256):
+            raise HTTPException(401, "Invalid HMAC signature")
+        
+        # Parse payload
+        import json
+        payload = json.loads(body)
+        shop_domain = payload.get("shop_domain")
+        shop_id = payload.get("shop_id")
+        
+        logging.info(f"[GDPR] Shop redaction for shop={shop_domain}, id={shop_id}")
+        
+        # Delete ALL shop data from database
+        pool = await db_client.connect()
+        async with pool.acquire() as conn:
+            # Delete in correct order (respecting foreign keys)
+            await conn.execute("DELETE FROM usage_tracking WHERE shop_domain = $1", shop_domain)
+            await conn.execute("DELETE FROM product_embeddings WHERE shop_domain = $1", shop_domain)
+            await conn.execute("DELETE FROM user_subscriptions WHERE shop_domain = $1", shop_domain)
+            
+            logging.info(f"[GDPR] All data deleted for shop {shop_domain}")
+        
+        return {
+            "status": "completed",
+            "message": "All shop data deleted successfully",
+            "shop_domain": shop_domain
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error processing shop redaction: {str(e)}")
+        raise HTTPException(500, str(e))
 
 @app.get("/")
 async def root():
