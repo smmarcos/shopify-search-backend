@@ -5,9 +5,9 @@ Database connection and utilities for pgvector
 import os
 import json
 from typing import List, Dict, Optional
-import numpy as np
 import asyncpg
 from asyncpg.pool import Pool
+import numpy as np
 from pgvector.asyncpg import register_vector
 
 
@@ -20,9 +20,10 @@ class DatabaseClient:
         )
     
     async def connect(self):
-        """Create connection pool and register pgvector types"""
+        """Create connection pool with pgvector support"""
         if self.pool is None:
-            async def init(conn):
+            async def init_connection(conn):
+                # Register pgvector type for NumPy array support
                 await register_vector(conn)
             
             self.pool = await asyncpg.create_pool(
@@ -30,9 +31,8 @@ class DatabaseClient:
                 min_size=5,
                 max_size=20,
                 command_timeout=60,
-                init=init
+                init=init_connection
             )
-            print("✅ Database pool created with pgvector support")
         return self.pool
     
     async def disconnect(self):
@@ -47,8 +47,7 @@ class DatabaseClient:
         limit: int = 10,
         max_price: Optional[float] = None,
         min_price: Optional[float] = None,
-        in_stock_only: bool = False,
-        shop: Optional[str] = None
+        in_stock_only: bool = False
     ) -> List[Dict]:
         """
         Perform vector similarity search
@@ -59,26 +58,20 @@ class DatabaseClient:
             max_price: Filter by maximum price
             min_price: Filter by minimum price
             in_stock_only: Only return in-stock products
-            shop: Filter by shop domain
         
         Returns:
             List of products with similarity scores
         """
-        print(f"🔍 vector_search called - query_embedding type: {type(query_embedding)}, len: {len(query_embedding) if isinstance(query_embedding, list) else 'N/A'}")
         pool = await self.connect()
         
         # CRITICAL: Convert Python list to NumPy array for pgvector asyncpg codec
-        # The pgvector.asyncpg.register_vector() codec expects np.ndarray, not list
-        # See: https://github.com/pgvector/pgvector-python#asyncpg
         if isinstance(query_embedding, list):
             query_embedding = np.array(query_embedding, dtype=np.float32)
         
-        print(f"✅ Converted to NumPy array: {type(query_embedding)}, dtype: {query_embedding.dtype}")
-        
         # Build WHERE clause dynamically
         where_conditions = []
-        params = [query_embedding]  # $1 is NumPy array (pgvector codec handles conversion)
-        param_counter = 2  # Start from $2 for other params
+        params = [query_embedding, limit]
+        param_counter = 3
         
         if max_price is not None:
             where_conditions.append(f"price <= ${param_counter}")
@@ -93,19 +86,16 @@ class DatabaseClient:
         if in_stock_only:
             where_conditions.append("(metadata->>'in_stock')::boolean = true")
         
-        if shop:
-            where_conditions.append(f"shop_domain = ${param_counter}")
-            params.append(shop)
-            param_counter += 1
+        where_clause = ""
+        if where_conditions:
+            where_clause = "WHERE " + " AND ".join(where_conditions)
+        else:
+            where_clause = "WHERE embedding IS NOT NULL"
         
-        # Always ensure embedding is not NULL
-        where_conditions.append("embedding IS NOT NULL")
+        # If we have conditions AND need to check for embedding
+        if where_conditions:
+            where_clause += " AND embedding IS NOT NULL"
         
-        # Build complete WHERE clause
-        where_clause = " AND ".join(where_conditions)
-        
-        # Use $1 parameter for embedding - pgvector asyncpg codec handles NumPy array → vector
-        # See official docs: https://github.com/pgvector/pgvector-python#asyncpg
         query = f"""
             SELECT 
                 product_id,
@@ -116,24 +106,15 @@ class DatabaseClient:
                 category,
                 tags,
                 metadata,
-                1 - (embedding <-> $1) as similarity_score
+                1 - (embedding <=> $1::vector) as similarity_score
             FROM product_embeddings
-            WHERE {where_clause}
-            ORDER BY embedding <-> $1
-            LIMIT {limit}
+            {where_clause}
+            ORDER BY embedding <=> $1::vector
+            LIMIT $2
         """
         
-        print(f"📝 Query params: NumPy embedding (shape {query_embedding.shape}) + {len(params)-1} filters")
-        print(f"🔍 WHERE clause: {where_clause}")
-        
         async with pool.acquire() as conn:
-            try:
-                rows = await conn.fetch(query, *params)
-                print(f"✅ Query executed successfully, returned {len(rows)} rows")
-            except Exception as e:
-                print(f"❌ Query execution failed: {str(e)}")
-                print(f"❌ Query was: {query[:500]}")
-                raise
+            rows = await conn.fetch(query, *params)
         
         # Parse metadata JSON strings back to dicts
         import json
@@ -144,7 +125,6 @@ class DatabaseClient:
                 row_dict['metadata'] = json.loads(row_dict['metadata'])
             results.append(row_dict)
         
-        print(f"📦 Returning {len(results)} results")
         return results
     
     async def get_product_by_id(self, product_id: str) -> Optional[Dict]:
@@ -183,7 +163,6 @@ class DatabaseClient:
         self,
         product_id: str,
         title: str,
-        shop_domain: str,
         embedding: Optional[List[float]] = None,
         description: Optional[str] = None,
         price: Optional[float] = None,
@@ -197,9 +176,9 @@ class DatabaseClient:
         
         query = """
             INSERT INTO product_embeddings 
-                (product_id, shop_domain, title, description, price, vendor, category, tags, embedding, metadata)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
-            ON CONFLICT (product_id, shop_domain) 
+                (product_id, title, description, price, vendor, category, tags, embedding, metadata)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+            ON CONFLICT (product_id) 
             DO UPDATE SET
                 title = EXCLUDED.title,
                 description = EXCLUDED.description,
@@ -214,8 +193,9 @@ class DatabaseClient:
         """
         
         # CRITICAL: Convert Python list to NumPy array for pgvector asyncpg codec
-        if embedding and isinstance(embedding, list):
-            embedding = np.array(embedding, dtype=np.float32)
+        embedding_array = None
+        if embedding:
+            embedding_array = np.array(embedding, dtype=np.float32) if isinstance(embedding, list) else embedding
         
         # Convert metadata dict to JSON string
         import json
@@ -225,14 +205,13 @@ class DatabaseClient:
             result = await conn.fetchval(
                 query,
                 product_id,
-                shop_domain,
                 title,
                 description,
                 price,
                 vendor,
                 category,
                 tags or [],
-                embedding,
+                embedding_array,
                 metadata_str
             )
         
@@ -241,7 +220,6 @@ class DatabaseClient:
     async def upsert_product_info(
         self,
         product_id: str,
-        shop_domain: str,
         title: str,
         description: str,
         price: float,
@@ -260,43 +238,43 @@ class DatabaseClient:
         import json
         metadata_str = json.dumps(metadata or {})
         
-        # Check if product exists for this shop
-        check_query = "SELECT embedding FROM product_embeddings WHERE product_id = $1 AND shop_domain = $2"
+        # Check if product exists
+        check_query = "SELECT embedding FROM product_embeddings WHERE product_id = $1"
         
         async with pool.acquire() as conn:
-            existing = await conn.fetchrow(check_query, product_id, shop_domain)
+            existing = await conn.fetchrow(check_query, product_id)
             
             if existing:
                 # Product exists - UPDATE without touching embedding
                 update_query = """
                     UPDATE product_embeddings 
-                    SET title = $3,
-                        description = $4,
-                        price = $5,
-                        vendor = $6,
-                        category = $7,
-                        tags = $8,
-                        metadata = $9::jsonb,
+                    SET title = $2,
+                        description = $3,
+                        price = $4,
+                        vendor = $5,
+                        category = $6,
+                        tags = $7,
+                        metadata = $8::jsonb,
                         updated_at = CURRENT_TIMESTAMP
-                    WHERE product_id = $1 AND shop_domain = $2
+                    WHERE product_id = $1
                     RETURNING id
                 """
                 result = await conn.fetchval(
                     update_query,
-                    product_id, shop_domain, title, description, price,
+                    product_id, title, description, price,
                     vendor, category, tags or [], metadata_str
                 )
             else:
                 # New product - INSERT without embedding (NULL)
                 insert_query = """
                     INSERT INTO product_embeddings 
-                        (product_id, shop_domain, title, description, price, vendor, category, tags, metadata)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+                        (product_id, title, description, price, vendor, category, tags, metadata)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
                     RETURNING id
                 """
                 result = await conn.fetchval(
                     insert_query,
-                    product_id, shop_domain, title, description, price,
+                    product_id, title, description, price,
                     vendor, category, tags or [], metadata_str
                 )
         
@@ -319,14 +297,9 @@ class DatabaseClient:
         async with pool.acquire() as conn:
             await conn.execute(query_sql, query, results_count, session_id)
     
-    async def get_search_stats(self, days: int = 7, shop_domain: str = None) -> Dict:
-        """Get comprehensive search analytics for last N days filtered by shop"""
+    async def get_search_stats(self, days: int = 7) -> Dict:
+        """Get comprehensive search analytics for last N days"""
         pool = await self.connect()
-        
-        # Build WHERE clause
-        where_clause = f"WHERE created_at >= NOW() - INTERVAL '{days} days'"
-        if shop_domain:
-            where_clause += f" AND shop_domain = '{shop_domain}'"
         
         async with pool.acquire() as conn:
             # 1. DAILY STATS - Searches by day  
@@ -338,7 +311,7 @@ class DatabaseClient:
                     COUNT(*) FILTER (WHERE results_count = 0) as searches_no_results,
                     ROUND(AVG(COALESCE(results_count, 0)), 2) as avg_results
                 FROM search_analytics
-                {where_clause}
+                WHERE created_at >= NOW() - INTERVAL '{days} days'
                 GROUP BY DATE(created_at)
                 ORDER BY date DESC
             """
@@ -352,7 +325,7 @@ class DatabaseClient:
                     ROUND(AVG(COALESCE(results_count, 0)), 2) as avg_results,
                     MAX(created_at) as last_searched
                 FROM search_analytics
-                {where_clause}
+                WHERE created_at >= NOW() - INTERVAL '{days} days'
                 GROUP BY query
                 ORDER BY search_count DESC
                 LIMIT 20
@@ -367,7 +340,7 @@ class DatabaseClient:
                     COALESCE(results_count, 0) as results_count,
                     created_at
                 FROM search_analytics
-                {where_clause}
+                WHERE created_at >= NOW() - INTERVAL '{days} days'
                 ORDER BY created_at DESC
                 LIMIT 50
             """
@@ -381,7 +354,7 @@ class DatabaseClient:
                     COUNT(*) FILTER (WHERE COALESCE(results_count, 0) = 0) as no_results_count,
                     ROUND(AVG(COALESCE(results_count, 0)), 2) as avg_results
                 FROM search_analytics
-                {where_clause}
+                WHERE created_at >= NOW() - INTERVAL '{days} days'
             """
             summary = await conn.fetchrow(summary_query)
         
@@ -465,13 +438,11 @@ class DatabaseClient:
             
         return [row['product_id'] for row in rows]
     
-    async def get_all_products_with_status(self, shop_domain: str = None) -> List[Dict]:
-        """Get all products with their sync status, optionally filtered by shop"""
+    async def get_all_products_with_status(self) -> List[Dict]:
+        """Get all products with their sync status"""
         pool = await self.connect()
         
-        where_clause = f"WHERE shop_domain = '{shop_domain}'" if shop_domain else ""
-        
-        query = f"""
+        query = """
             SELECT 
                 product_id,
                 title,
@@ -485,7 +456,6 @@ class DatabaseClient:
                 END as has_embedding,
                 updated_at
             FROM product_embeddings
-            {where_clause}
             ORDER BY updated_at DESC
         """
         
@@ -507,69 +477,52 @@ class DatabaseClient:
             for row in rows
         ]
     
-    async def get_app_config(self, key: str = "ai_search", shop: Optional[str] = None) -> Dict:
-        """
-        Get app configuration from database (multi-tenant)
-        
-        Args:
-            key: Configuration key (default: "ai_search")
-            shop: Shop domain for multi-tenant filtering
-            
-        Returns:
-            Configuration dictionary with shop-specific settings
-        """
+    async def get_app_config(self, key: str = "ai_search") -> Dict:
+        """Get app configuration from database"""
         pool = await self.connect()
         
-        # Query with shop filter for multi-tenant support
-        query = "SELECT value FROM app_settings WHERE key = $1 AND shop_domain = $2"
+        query = "SELECT value FROM app_settings WHERE key = $1"
         
         async with pool.acquire() as conn:
-            row = await conn.fetchrow(query, key, shop)
+            row = await conn.fetchrow(query, key)
             
         if row:
             # row['value'] is already a dict from JSONB type
             return row['value'] if isinstance(row['value'], dict) else json.loads(row['value'])
         
-        # Return defaults if not found (per-shop defaults)
+        # Return defaults if not found
         return {
             "ai_search_enabled": True,
             "autocorrect": True,
-            "results_limit": "unlimited",  # Match Shopify default behavior
-            "similarity_threshold": 5,  # Lower threshold for better recall (5% similarity)
+            "results_limit": "10",
+            "similarity_threshold": 70,
             "exclude_out_of_stock": False,
             "exclude_archived": False,
             "language": "es"
         }
     
-    async def save_app_config(self, config: Dict, key: str = "ai_search", shop: Optional[str] = None) -> bool:
-        """
-        Save app configuration to database (multi-tenant)
-        
-        Args:
-            config: Configuration dictionary
-            key: Configuration key (default: "ai_search")
-            shop: Shop domain for multi-tenant support
-            
-        Returns:
-            True if saved successfully
-        """
+    async def save_app_config(self, config: Dict, key: str = "ai_search") -> bool:
+        """Save app configuration to database"""
         pool = await self.connect()
         
         query = """
-            INSERT INTO app_settings (key, value, shop_domain, description, updated_at)
-            VALUES ($1, $2::jsonb, $3, $4, CURRENT_TIMESTAMP)
-            ON CONFLICT (key, shop_domain) 
+            INSERT INTO app_settings (key, value, description, updated_at)
+            VALUES ($1, $2::jsonb, $3, CURRENT_TIMESTAMP)
+            ON CONFLICT (key) 
             DO UPDATE SET 
                 value = $2::jsonb,
                 updated_at = CURRENT_TIMESTAMP
         """
         
-        description = f"AI Search settings for shop: {shop or 'global'}"
-        
         async with pool.acquire() as conn:
-            await conn.execute(query, key, json.dumps(config), shop, description)
+            await conn.execute(
+                query, 
+                key, 
+                json.dumps(config),
+                "AI search configuration settings"
+            )
             
-        print(f"✅ Saved configuration to database: {key} for shop: {shop}")
+        print(f"✅ Saved configuration to database: {key}")
         return True
 
 
