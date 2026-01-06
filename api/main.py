@@ -837,13 +837,14 @@ async def test_search(query: str = "camiseta blanca", shop: str = "test.myshopif
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/admin/get-config")
-async def get_current_config():
-    """Get current config from database"""
+async def get_current_config(shop: str):
+    """Get current config from database (per-shop)"""
     try:
-        config = await db_client.get_app_config()
+        config = await db_client.get_app_config(shop=shop)
         return {
             "config": config,
-            "source": "database" if config else "default"
+            "source": "database" if config else "default",
+            "shop": shop
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1169,8 +1170,8 @@ async def search_products(request: SearchRequest):
             print(f"📊 Analytics tracked: '{request.query}' for shop: {shop}")
         
         # 3. PROCEED WITH SEARCH (existing logic)
-        # Get current configuration from database
-        config = await db_client.get_app_config()
+        # Get current configuration from database (per-shop)
+        config = await db_client.get_app_config(shop=shop)
         
         # Check if AI search is enabled
         if not config.get("ai_search_enabled", True):
@@ -1193,8 +1194,9 @@ async def search_products(request: SearchRequest):
         if request.max_results:
             max_results = min(request.max_results, max_results) if results_limit != "unlimited" else max_results
         
-        # 3. Get similarity threshold from config (default 50% for better recall)
-        similarity_threshold = config.get("similarity_threshold", 50) / 100.0
+        # 3. Get similarity threshold from config (default 10% for better recall)
+        # Lower threshold = more results (good for semantic search with embeddings)
+        similarity_threshold = config.get("similarity_threshold", 10) / 100.0
         
         # 4. Direct vector search (más rápido y permite pasar shop correctamente)
         query_embedding = await embedding_gen.generate_embedding(corrected_query)
@@ -2323,24 +2325,25 @@ async def initialize_config(request: dict):
             raise HTTPException(status_code=400, detail="Shop domain is required")
         
         # Check if config already exists
-        existing_config = await db_client.get_app_config(key=shop)
+        existing_config = await db_client.get_app_config(shop=shop)
         
-        if existing_config and len(existing_config) > 0:
+        # Check if it's using defaults (empty config means defaults)
+        if existing_config.get("ai_search_enabled") is not None:
             return {"status": "already_exists", "message": "Configuration already initialized"}
         
-        # Default configuration
+        # Default configuration (5% threshold for better recall)
         default_config = {
             "ai_search_enabled": True,
             "autocorrect": True,
-            "results_limit": "10",
-            "similarity_threshold": 70,
+            "results_limit": "unlimited",
+            "similarity_threshold": 5,
             "exclude_out_of_stock": False,
             "exclude_archived": False,
-            "language": "en"
+            "language": "es"
         }
         
         # Save default configuration
-        await db_client.save_app_config(default_config, key=shop)
+        await db_client.save_app_config(default_config, shop=shop)
         
         return {
             "status": "success",
@@ -2353,34 +2356,35 @@ async def initialize_config(request: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/config")
-async def get_config():
-    """Get current search configuration from database"""
+async def get_config(shop: str):
+    """Get current search configuration from database (per-shop)"""
     try:
-        config = await db_client.get_app_config()
-        return {"config": config}
+        config = await db_client.get_app_config(shop=shop)
+        return {"config": config, "shop": shop}
     except Exception as e:
-        print(f"❌ Error getting config: {e}")
+        print(f"❌ Error getting config for {shop}: {e}")
         # Return defaults on error
         return {
             "config": {
                 "ai_search_enabled": True,
                 "autocorrect": True,
-                "results_limit": "10",
-                "similarity_threshold": 70,
+                "results_limit": "unlimited",
+                "similarity_threshold": 5,
                 "exclude_out_of_stock": False,
                 "exclude_archived": False,
                 "language": "es"
-            }
+            },
+            "shop": shop
         }
 
 @app.post("/api/config")
-async def save_config(data: ConfigModel):
-    """Save search configuration to database"""
+async def save_config(data: ConfigModel, shop: str):
+    """Save search configuration to database (per-shop)"""
     try:
-        await db_client.save_app_config(data.config)
-        return {"success": True, "config": data.config}
+        await db_client.save_app_config(data.config, shop=shop)
+        return {"success": True, "config": data.config, "shop": shop}
     except Exception as e:
-        print(f"❌ Error saving config: {e}")
+        print(f"❌ Error saving config for {shop}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

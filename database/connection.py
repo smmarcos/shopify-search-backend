@@ -506,52 +506,69 @@ class DatabaseClient:
             for row in rows
         ]
     
-    async def get_app_config(self, key: str = "ai_search") -> Dict:
-        """Get app configuration from database"""
+    async def get_app_config(self, key: str = "ai_search", shop: Optional[str] = None) -> Dict:
+        """
+        Get app configuration from database (multi-tenant)
+        
+        Args:
+            key: Configuration key (default: "ai_search")
+            shop: Shop domain for multi-tenant filtering
+            
+        Returns:
+            Configuration dictionary with shop-specific settings
+        """
         pool = await self.connect()
         
-        query = "SELECT value FROM app_settings WHERE key = $1"
+        # Query with shop filter for multi-tenant support
+        query = "SELECT value FROM app_settings WHERE key = $1 AND shop_domain = $2"
         
         async with pool.acquire() as conn:
-            row = await conn.fetchrow(query, key)
+            row = await conn.fetchrow(query, key, shop)
             
         if row:
             # row['value'] is already a dict from JSONB type
             return row['value'] if isinstance(row['value'], dict) else json.loads(row['value'])
         
-        # Return defaults if not found
+        # Return defaults if not found (per-shop defaults)
         return {
             "ai_search_enabled": True,
             "autocorrect": True,
-            "results_limit": "unlimited",  # Changed from "10" to match Shopify default behavior
-            "similarity_threshold": 50,  # Lowered from 70 for better recall
+            "results_limit": "unlimited",  # Match Shopify default behavior
+            "similarity_threshold": 5,  # Lower threshold for better recall (5% similarity)
             "exclude_out_of_stock": False,
             "exclude_archived": False,
             "language": "es"
         }
     
-    async def save_app_config(self, config: Dict, key: str = "ai_search") -> bool:
-        """Save app configuration to database"""
+    async def save_app_config(self, config: Dict, key: str = "ai_search", shop: Optional[str] = None) -> bool:
+        """
+        Save app configuration to database (multi-tenant)
+        
+        Args:
+            config: Configuration dictionary
+            key: Configuration key (default: "ai_search")
+            shop: Shop domain for multi-tenant support
+            
+        Returns:
+            True if saved successfully
+        """
         pool = await self.connect()
         
         query = """
-            INSERT INTO app_settings (key, value, description, updated_at)
-            VALUES ($1, $2::jsonb, $3, CURRENT_TIMESTAMP)
-            ON CONFLICT (key) 
+            INSERT INTO app_settings (key, value, shop_domain, description, updated_at)
+            VALUES ($1, $2::jsonb, $3, $4, CURRENT_TIMESTAMP)
+            ON CONFLICT (key, shop_domain) 
             DO UPDATE SET 
                 value = $2::jsonb,
                 updated_at = CURRENT_TIMESTAMP
         """
         
+        description = f"AI Search settings for shop: {shop or 'global'}"
+        
         async with pool.acquire() as conn:
-            await conn.execute(
-                query, 
-                key, 
-                json.dumps(config),
-                "AI search configuration settings"
-            )
+            await conn.execute(query, key, json.dumps(config), shop, description)
             
-        print(f"✅ Saved configuration to database: {key}")
+        print(f"✅ Saved configuration to database: {key} for shop: {shop}")
         return True
 
 
