@@ -1126,12 +1126,12 @@ async def search_products(request: SearchRequest):
                 WHERE shop_domain = $1
             """, shop)
             
-            # 2.1 SAVE TO ANALYTICS - Track every search (even before knowing results)
+            # 2.1 SAVE TO ANALYTICS - Track every search with shop_domain
             await conn.execute("""
-                INSERT INTO search_analytics (query, results_count)
-                VALUES ($1, 0)
-            """, request.query)
-            print(f"📊 Analytics tracked: '{request.query}'")
+                INSERT INTO search_analytics (query, results_count, shop_domain)
+                VALUES ($1, 0, $2)
+            """, request.query, shop)
+            print(f"📊 Analytics tracked: '{request.query}' for shop: {shop}")
         
         # 3. PROCEED WITH SEARCH (existing logic)
         # Get current configuration from database
@@ -2037,8 +2037,8 @@ async def compare_shopify_products(request: dict):
         shopify_products = request.get('products', [])
         shop = request.get('shop', '')
         
-        # Get current products in DB with embedding status
-        db_products = await db_client.get_all_products_with_status()
+        # Get current products in DB with embedding status (FILTERED BY SHOP)
+        db_products = await db_client.get_all_products_with_status(shop_domain=shop)
         db_products_dict = {p['product_id']: p for p in db_products}
         
         updated_products = []

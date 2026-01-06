@@ -453,11 +453,13 @@ class DatabaseClient:
             
         return [row['product_id'] for row in rows]
     
-    async def get_all_products_with_status(self) -> List[Dict]:
-        """Get all products with their sync status"""
+    async def get_all_products_with_status(self, shop_domain: str = None) -> List[Dict]:
+        """Get all products with their sync status, optionally filtered by shop"""
         pool = await self.connect()
         
-        query = """
+        where_clause = f"WHERE shop_domain = '{shop_domain}'" if shop_domain else ""
+        
+        query = f"""
             SELECT 
                 product_id,
                 title,
@@ -471,6 +473,7 @@ class DatabaseClient:
                 END as has_embedding,
                 updated_at
             FROM product_embeddings
+            {where_clause}
             ORDER BY updated_at DESC
         """
         
