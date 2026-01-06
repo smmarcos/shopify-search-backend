@@ -66,12 +66,13 @@ class DatabaseClient:
         print(f"🔍 vector_search called - query_embedding type: {type(query_embedding)}, len: {len(query_embedding) if isinstance(query_embedding, list) else 'N/A'}")
         pool = await self.connect()
         
-        # Pass embedding as list parameter - asyncpg will handle vector conversion
-        # Do NOT convert to string - pass raw Python list
+        # Convert embedding list to pgvector string format manually
+        # Format: '[0.1,0.2,0.3]' - this is what pgvector expects as a string literal
+        embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
         
         # Build WHERE clause dynamically
         where_conditions = []
-        params = [query_embedding]  # $1 is the embedding LIST (not string)
+        params = [embedding_str]  # $1 is the embedding as pgvector string
         param_counter = 2  # Start from $2 for other params
         
         if max_price is not None:
@@ -98,8 +99,8 @@ class DatabaseClient:
         # Build complete WHERE clause
         where_clause = " AND ".join(where_conditions)
         
-        # Build query using embedding as $1 parameter (asyncpg converts list to vector)
-        # asyncpg automatically handles Python list → PostgreSQL vector conversion
+        # Use CAST to convert string to vector explicitly
+        # $1 is string '[0.1,0.2,0.3]', PostgreSQL CAST converts it to vector type
         query = f"""
             SELECT 
                 product_id,
@@ -110,15 +111,16 @@ class DatabaseClient:
                 category,
                 tags,
                 metadata,
-                1 - (embedding <=> $1::vector) as similarity_score
+                1 - (embedding <=> CAST($1 AS vector)) as similarity_score
             FROM product_embeddings
             WHERE {where_clause}
-            ORDER BY embedding <=> $1::vector
+            ORDER BY embedding <=> CAST($1 AS vector)
             LIMIT {limit}
         """
         
-        print(f"📝 Query params: embedding (list len {len(query_embedding)}) + {len(params)-1} filters")
+        print(f"📝 Query params: embedding string (len {len(embedding_str)}) + {len(params)-1} filters")
         print(f"🔍 WHERE clause: {where_clause}")
+        print(f"📄 Using CAST($1 AS vector) with string param")
         
         async with pool.acquire() as conn:
             try:
