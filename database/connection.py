@@ -60,17 +60,13 @@ class DatabaseClient:
         print(f"🔍 vector_search called - query_embedding type: {type(query_embedding)}, len: {len(query_embedding) if isinstance(query_embedding, list) else 'N/A'}")
         pool = await self.connect()
         
-        # Convert embedding list to string format for pgvector (without brackets for direct cast)
-        # PostgreSQL vector type expects: [1.0,2.0,3.0] format
-        embedding_str = f"[{','.join(map(str, query_embedding))}]"
-        print(f"✅ embedding_str created: {embedding_str[:80]}...")
+        # Pass embedding as list parameter - asyncpg will handle vector conversion
+        # Do NOT convert to string - pass raw Python list
         
         # Build WHERE clause dynamically
         where_conditions = []
-        params = []
-        param_counter = 1  # Start from $1 for first filter param
-        
-        # NOTE: embedding is NOT a param - it's embedded in query to avoid type issues
+        params = [query_embedding]  # $1 is the embedding LIST (not string)
+        param_counter = 2  # Start from $2 for other params
         
         if max_price is not None:
             where_conditions.append(f"price <= ${param_counter}")
@@ -96,9 +92,8 @@ class DatabaseClient:
         # Build complete WHERE clause
         where_clause = " AND ".join(where_conditions)
         
-        # Build query with embedding as SQL string literal (WITH quotes for SQL parsing)
-        # Correct pgvector syntax: '[1,2,3]'::vector (string literal cast to vector)
-        # Using double quotes in f-string, single quotes for SQL
+        # Build query using embedding as $1 parameter (asyncpg converts list to vector)
+        # asyncpg automatically handles Python list → PostgreSQL vector conversion
         query = f"""
             SELECT 
                 product_id,
@@ -109,16 +104,15 @@ class DatabaseClient:
                 category,
                 tags,
                 metadata,
-                1 - (embedding <=> '{embedding_str}'::vector) as similarity_score
+                1 - (embedding <=> $1::vector) as similarity_score
             FROM product_embeddings
             WHERE {where_clause}
-            ORDER BY embedding <=> '{embedding_str}'::vector
+            ORDER BY embedding <=> $1::vector
             LIMIT {limit}
         """
         
-        print(f"📝 Query params count: {len(params)}, types: {[type(p).__name__ for p in params]}")
+        print(f"📝 Query params: embedding (list len {len(query_embedding)}) + {len(params)-1} filters")
         print(f"🔍 WHERE clause: {where_clause}")
-        print(f"📄 Embedding SQL literal: '{embedding_str[:60]}'::vector")
         
         async with pool.acquire() as conn:
             try:
