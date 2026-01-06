@@ -493,10 +493,16 @@ class DatabaseClient:
             for row in rows
         ]
     
-    async def get_app_config(self, key: str = "ai_search") -> Dict:
-        """Get app configuration from database"""
+    async def get_app_config(self, key: str = "ai_search", shop: str = None) -> Dict:
+        """Get app configuration from database
+        
+        Args:
+            key: Configuration key (default: "ai_search")
+            shop: Shop domain for multi-tenant configs (not used yet, for future compatibility)
+        """
         pool = await self.connect()
         
+        # TODO: Add shop_domain filtering when app_settings table is migrated to multi-tenant
         query = "SELECT value FROM app_settings WHERE key = $1"
         
         async with pool.acquire() as conn:
@@ -517,10 +523,17 @@ class DatabaseClient:
             "language": "es"
         }
     
-    async def save_app_config(self, config: Dict, key: str = "ai_search") -> bool:
-        """Save app configuration to database"""
+    async def save_app_config(self, config: Dict, key: str = "ai_search", shop: str = None) -> bool:
+        """Save app configuration to database
+        
+        Args:
+            config: Configuration dictionary to save
+            key: Configuration key (default: "ai_search")
+            shop: Shop domain for multi-tenant configs (not used yet, for future compatibility)
+        """
         pool = await self.connect()
         
+        # TODO: Add shop_domain filtering when app_settings table is migrated to multi-tenant
         query = """
             INSERT INTO app_settings (key, value, description, updated_at)
             VALUES ($1, $2::jsonb, $3, CURRENT_TIMESTAMP)
