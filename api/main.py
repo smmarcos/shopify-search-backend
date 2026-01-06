@@ -109,6 +109,15 @@ async def migrate_shop_domain(secret: str = ""):
     try:
         pool = await db_client.connect()
         async with pool.acquire() as conn:
+            # CRITICAL: Drop old unique constraint FIRST
+            try:
+                # Try multiple possible constraint names
+                await conn.execute("ALTER TABLE product_embeddings DROP CONSTRAINT IF EXISTS product_embeddings_product_id_key CASCADE")
+                await conn.execute("ALTER TABLE product_embeddings DROP CONSTRAINT IF EXISTS product_embeddings_pkey CASCADE")
+                print("✅ Dropped old unique constraints")
+            except Exception as e:
+                print(f"⚠️ Constraint drop error: {str(e)}")
+            
             # Add shop_domain to product_embeddings
             try:
                 await conn.execute("""
@@ -148,24 +157,25 @@ async def migrate_shop_domain(secret: str = ""):
             except Exception as e:
                 print(f"⚠️ Index exists or error: {str(e)}")
             
-            # Drop old unique constraint and create composite one
+            # Create composite unique index
             try:
                 await conn.execute("""
-                    ALTER TABLE product_embeddings 
-                    DROP CONSTRAINT IF EXISTS product_embeddings_product_id_key
+                    DROP INDEX IF EXISTS product_embeddings_product_shop_idx
                 """)
-                print("✅ Dropped old unique constraint")
-            except Exception as e:
-                print(f"⚠️ Constraint drop error: {str(e)}")
-            
-            try:
                 await conn.execute("""
                     CREATE UNIQUE INDEX product_embeddings_product_shop_idx 
                     ON product_embeddings (product_id, shop_domain)
                 """)
                 print("✅ Created composite unique index")
             except Exception as e:
-                print(f"⚠️ Composite index exists or error: {str(e)}")
+                print(f"⚠️ Composite index error: {str(e)}")
+            
+            # Delete products without shop_domain (orphaned data)
+            try:
+                result = await conn.execute("DELETE FROM product_embeddings WHERE shop_domain IS NULL")
+                print(f"✅ Cleaned orphaned products: {result}")
+            except Exception as e:
+                print(f"⚠️ Cleanup error: {str(e)}")
             
             return {"success": True, "message": "Migration completed: shop_domain columns added"}
     except Exception as e:
