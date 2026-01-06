@@ -38,12 +38,17 @@ CREATE TABLE IF NOT EXISTS search_analytics (
     results_count INT,
     clicked_product_id VARCHAR(255),
     session_id VARCHAR(255),
+    shop_domain VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create index for analytics queries
 CREATE INDEX IF NOT EXISTS search_analytics_created_at_idx 
 ON search_analytics (created_at DESC);
+
+-- Create index for shop_domain queries
+CREATE INDEX IF NOT EXISTS search_analytics_shop_domain_idx 
+ON search_analytics (shop_domain);
 
 -- Create settings table for app configuration
 CREATE TABLE IF NOT EXISTS app_settings (
