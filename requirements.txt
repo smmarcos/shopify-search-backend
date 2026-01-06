@@ -11,6 +11,7 @@ asyncpg>=0.29.0
 pgvector>=0.2.3
 sqlalchemy>=2.0.23
 alembic>=1.13.0
+numpy>=1.24.0
 
 # Redis
 redis>=5.0.0

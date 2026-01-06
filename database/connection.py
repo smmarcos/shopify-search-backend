@@ -5,6 +5,7 @@ Database connection and utilities for pgvector
 import os
 import json
 from typing import List, Dict, Optional
+import numpy as np
 import asyncpg
 from asyncpg.pool import Pool
 from pgvector.asyncpg import register_vector
@@ -66,15 +67,18 @@ class DatabaseClient:
         print(f"🔍 vector_search called - query_embedding type: {type(query_embedding)}, len: {len(query_embedding) if isinstance(query_embedding, list) else 'N/A'}")
         pool = await self.connect()
         
-        # Convert embedding list to pgvector string format for direct insertion
-        # Format: '[0.1,0.2,0.3]' - insert directly as literal, NOT as parameter
-        # asyncpg declares parameters as TEXT type before PostgreSQL can CAST them
-        embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
+        # CRITICAL: Convert Python list to NumPy array for pgvector asyncpg codec
+        # The pgvector.asyncpg.register_vector() codec expects np.ndarray, not list
+        # See: https://github.com/pgvector/pgvector-python#asyncpg
+        if isinstance(query_embedding, list):
+            query_embedding = np.array(query_embedding, dtype=np.float32)
         
-        # Build WHERE clause dynamically - params start from $1 now (no embedding param)
+        print(f"✅ Converted to NumPy array: {type(query_embedding)}, dtype: {query_embedding.dtype}")
+        
+        # Build WHERE clause dynamically
         where_conditions = []
-        params = []  # NO embedding in params - will be inserted as literal
-        param_counter = 1  # Start from $1 for filters
+        params = [query_embedding]  # $1 is NumPy array (pgvector codec handles conversion)
+        param_counter = 2  # Start from $2 for other params
         
         if max_price is not None:
             where_conditions.append(f"price <= ${param_counter}")
@@ -100,8 +104,8 @@ class DatabaseClient:
         # Build complete WHERE clause
         where_clause = " AND ".join(where_conditions)
         
-        # CRITICAL: Insert embedding as LITERAL string, not parameter
-        # This avoids asyncpg declaring it as TEXT type
+        # Use $1 parameter for embedding - pgvector asyncpg codec handles NumPy array → vector
+        # See official docs: https://github.com/pgvector/pgvector-python#asyncpg
         query = f"""
             SELECT 
                 product_id,
@@ -112,16 +116,15 @@ class DatabaseClient:
                 category,
                 tags,
                 metadata,
-                1 - (embedding <=> '{embedding_str}'::vector) as similarity_score
+                1 - (embedding <-> $1) as similarity_score
             FROM product_embeddings
             WHERE {where_clause}
-            ORDER BY embedding <=> '{embedding_str}'::vector
+            ORDER BY embedding <-> $1
             LIMIT {limit}
         """
         
-        print(f"📝 Query with embedding literal (len {len(embedding_str)}) + {len(params)} filter params")
+        print(f"📝 Query params: NumPy embedding (shape {query_embedding.shape}) + {len(params)-1} filters")
         print(f"🔍 WHERE clause: {where_clause}")
-        print(f"📄 Using embedding as literal string: '{embedding_str[:50]}...'::vector")
         
         async with pool.acquire() as conn:
             try:
