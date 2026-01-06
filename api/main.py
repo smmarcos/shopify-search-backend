@@ -2084,6 +2084,7 @@ async def compare_shopify_products(request: dict):
             # We need a different method that doesn't overwrite embeddings
             await db_client.upsert_product_info(
                 product_id=product['product_id'],
+                shop_domain=shop,  # ✅ CRITICAL: Add shop isolation
                 title=product['title'],
                 description=product.get('description', ''),
                 price=product.get('price', 0),
@@ -2091,8 +2092,7 @@ async def compare_shopify_products(request: dict):
                 category=product.get('category', ''),
                 tags=tags_list,
                 metadata={
-                    'needs_resync': needs_update,
-                    'shop': shop  # Add shop from request
+                    'needs_resync': needs_update
                 }
             )
         
@@ -2100,12 +2100,12 @@ async def compare_shopify_products(request: dict):
         print(f"🧠 Generating embeddings for new products...")
         pool = await db_client.connect()
         async with pool.acquire() as conn:
-            # Get products without embeddings
+            # Get products without embeddings (FILTERED BY SHOP)
             products_without_embeddings = await conn.fetch("""
                 SELECT product_id, title, description, vendor, category, tags
                 FROM product_embeddings
                 WHERE embedding IS NULL
-                AND metadata->>'shop' = $1
+                AND shop_domain = $1
             """, shop)
             
             if products_without_embeddings:

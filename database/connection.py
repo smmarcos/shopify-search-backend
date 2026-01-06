@@ -83,7 +83,7 @@ class DatabaseClient:
             where_conditions.append("(metadata->>'in_stock')::boolean = true")
         
         if shop:
-            where_conditions.append(f"metadata->>'shop' = ${param_counter}")
+            where_conditions.append(f"shop_domain = ${param_counter}")
             params.append(shop)
             param_counter += 1
         
@@ -229,6 +229,7 @@ class DatabaseClient:
     async def upsert_product_info(
         self,
         product_id: str,
+        shop_domain: str,
         title: str,
         description: str,
         price: float,
@@ -247,43 +248,43 @@ class DatabaseClient:
         import json
         metadata_str = json.dumps(metadata or {})
         
-        # Check if product exists
-        check_query = "SELECT embedding FROM product_embeddings WHERE product_id = $1"
+        # Check if product exists for this shop
+        check_query = "SELECT embedding FROM product_embeddings WHERE product_id = $1 AND shop_domain = $2"
         
         async with pool.acquire() as conn:
-            existing = await conn.fetchrow(check_query, product_id)
+            existing = await conn.fetchrow(check_query, product_id, shop_domain)
             
             if existing:
                 # Product exists - UPDATE without touching embedding
                 update_query = """
                     UPDATE product_embeddings 
-                    SET title = $2,
-                        description = $3,
-                        price = $4,
-                        vendor = $5,
-                        category = $6,
-                        tags = $7,
-                        metadata = $8::jsonb,
+                    SET title = $3,
+                        description = $4,
+                        price = $5,
+                        vendor = $6,
+                        category = $7,
+                        tags = $8,
+                        metadata = $9::jsonb,
                         updated_at = CURRENT_TIMESTAMP
-                    WHERE product_id = $1
+                    WHERE product_id = $1 AND shop_domain = $2
                     RETURNING id
                 """
                 result = await conn.fetchval(
                     update_query,
-                    product_id, title, description, price,
+                    product_id, shop_domain, title, description, price,
                     vendor, category, tags or [], metadata_str
                 )
             else:
                 # New product - INSERT without embedding (NULL)
                 insert_query = """
                     INSERT INTO product_embeddings 
-                        (product_id, title, description, price, vendor, category, tags, metadata)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+                        (product_id, shop_domain, title, description, price, vendor, category, tags, metadata)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
                     RETURNING id
                 """
                 result = await conn.fetchval(
                     insert_query,
-                    product_id, title, description, price,
+                    product_id, shop_domain, title, description, price,
                     vendor, category, tags or [], metadata_str
                 )
         
