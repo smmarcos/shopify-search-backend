@@ -96,8 +96,8 @@ class DatabaseClient:
         # Build complete WHERE clause
         where_clause = " AND ".join(where_conditions)
         
-        # Build query with embedding embedded directly (not as parameter to avoid type issues)
-        # pgvector CAST() works better with literal strings than parameterized text
+        # Build query with embedding cast properly (NO quotes around embedding_str)
+        # pgvector needs: [1,2,3]::vector NOT '[1,2,3]'::vector
         query = f"""
             SELECT 
                 product_id,
@@ -108,16 +108,16 @@ class DatabaseClient:
                 category,
                 tags,
                 metadata,
-                1 - (embedding <=> '{embedding_str}'::vector) as similarity_score
+                1 - (embedding <=> {embedding_str}::vector) as similarity_score
             FROM product_embeddings
             WHERE {where_clause}
-            ORDER BY embedding <=> '{embedding_str}'::vector
+            ORDER BY embedding <=> {embedding_str}::vector
             LIMIT {limit}
         """
         
         print(f"📝 Query params count: {len(params)}, types: {[type(p).__name__ for p in params]}")
         print(f"🔍 WHERE clause: {where_clause}")
-        print(f"📄 Embedding embedded as literal, not param")
+        print(f"📄 Embedding cast: {embedding_str[:60]}::vector")
         
         async with pool.acquire() as conn:
             try:
