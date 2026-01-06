@@ -414,17 +414,17 @@ class DatabaseClient:
                 metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{needs_resync}', 'false'::jsonb),
                 updated_at = CURRENT_TIMESTAMP
             WHERE product_id = $1
+            RETURNING id
         """
         
         async with pool.acquire() as conn:
-            result = await conn.execute(query, product_id, embedding)
+            result = await conn.fetchval(query, product_id, embedding)
             
         # Check if any row was updated
-        rows_updated = int(result.split()[-1])
-        if rows_updated == 0:
+        if result is None:
             raise Exception(f"Product {product_id} not found or not updated")
             
-        print(f"✅ Updated embedding for product {product_id} ({rows_updated} rows)")
+        print(f"✅ Updated embedding for product {product_id}")
         return True
     
     async def get_all_product_ids(self) -> List[str]:
@@ -438,13 +438,20 @@ class DatabaseClient:
             
         return [row['product_id'] for row in rows]
     
-    async def get_all_products_with_status(self) -> List[Dict]:
+    async def get_all_products_with_status(self, shop_domain: Optional[str] = None) -> List[Dict]:
         """Get all products with their sync status"""
         pool = await self.connect()
         
-        query = """
+        where_clause = ""
+        params = []
+        if shop_domain:
+            where_clause = "WHERE shop_domain = $1"
+            params = [shop_domain]
+        
+        query = f"""
             SELECT 
                 product_id,
+                shop_domain,
                 title,
                 description,
                 price,
@@ -456,15 +463,17 @@ class DatabaseClient:
                 END as has_embedding,
                 updated_at
             FROM product_embeddings
+            {where_clause}
             ORDER BY updated_at DESC
         """
         
         async with pool.acquire() as conn:
-            rows = await conn.fetch(query)
+            rows = await conn.fetch(query, *params)
             
         return [
             {
                 "product_id": row['product_id'],
+                "shop_domain": row['shop_domain'],
                 "title": row['title'],
                 "description": row['description'],
                 "price": float(row['price']) if row['price'] else None,
