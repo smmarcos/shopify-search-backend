@@ -2239,11 +2239,14 @@ async def sync_shopify_products():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/products-comparison")
-async def get_products_comparison():
-    """Compare Shopify products with synced products in database"""
+async def get_products_comparison(shop: str = None):
+    """Compare Shopify products with synced products in database, filtered by shop"""
     try:
-        # Get all products from database with their sync status
-        synced_products = await db_client.get_all_products_with_status()
+        if not shop:
+            raise HTTPException(400, "Missing shop parameter")
+        
+        # Get all products from database with their sync status (FILTERED BY SHOP)
+        synced_products = await db_client.get_all_products_with_status(shop_domain=shop)
         
         # Count stats from products
         total_products = len(synced_products)
@@ -2260,6 +2263,8 @@ async def get_products_comparison():
                 "needs_sync": missing_embeddings
             }
         }
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Products comparison error: {e}")
         import traceback
