@@ -1269,7 +1269,7 @@ async def sync_products(request: dict):
         if not products:
             # Fallback: sync products already in DB without embeddings
             query = """
-                SELECT product_id, title, description, price, vendor, category, tags, metadata
+                SELECT product_id, title, description, price, vendor, category, tags, metadata, shop_domain
                 FROM product_embeddings
                 WHERE embedding IS NULL
             """
@@ -1370,6 +1370,9 @@ async def sync_products(request: dict):
                 # Keep tags_list for database storage
                 tags_list = tags_list if tags_list else []
                 
+                # Extract shop_domain from product (either from request or from database)
+                shop_domain = product.get('shop_domain') or product.get('metadata', {}).get('shop_domain') if isinstance(product.get('metadata'), dict) else None
+                
                 await db_client.upsert_product(
                     product_id=product['product_id'],
                     title=product['title'],
@@ -1379,10 +1382,11 @@ async def sync_products(request: dict):
                     category=product.get('category', ''),
                     tags=tags_list,
                     embedding=embedding,
-                    metadata=product.get('metadata', {}) if isinstance(product.get('metadata'), dict) else {}
+                    metadata=product.get('metadata', {}) if isinstance(product.get('metadata'), dict) else {},
+                    shop_domain=shop_domain
                 )
                 synced += 1
-                print(f"✅ Synced: {product['title']}")
+                print(f"✅ Synced: {product['title']} for shop: {shop_domain}")
             except Exception as e:
                 error_msg = f"{product['product_id']}: {str(e)}"
                 print(f"❌ Error: {error_msg}")
