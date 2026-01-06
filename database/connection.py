@@ -228,7 +228,8 @@ class DatabaseClient:
         vendor: Optional[str] = None,
         category: Optional[str] = None,
         tags: Optional[List[str]] = None,
-        metadata: Optional[Dict] = None
+        metadata: Optional[Dict] = None,
+        shop_domain: Optional[str] = None
     ) -> bool:
         """
         Insert or update product WITHOUT touching embedding field.
@@ -242,9 +243,14 @@ class DatabaseClient:
         
         # Check if product exists
         check_query = "SELECT embedding FROM product_embeddings WHERE product_id = $1"
+        if shop_domain:
+            check_query += " AND shop_domain = $2"
         
         async with pool.acquire() as conn:
-            existing = await conn.fetchrow(check_query, product_id)
+            if shop_domain:
+                existing = await conn.fetchrow(check_query, product_id, shop_domain)
+            else:
+                existing = await conn.fetchrow(check_query, product_id)
             
             if existing:
                 # Product exists - UPDATE without touching embedding
@@ -259,26 +265,42 @@ class DatabaseClient:
                         metadata = $8::jsonb,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE product_id = $1
-                    RETURNING id
                 """
-                result = await conn.fetchval(
-                    update_query,
-                    product_id, title, description, price,
-                    vendor, category, tags or [], metadata_str
-                )
+                params = [product_id, title, description, price, vendor, category, tags or [], metadata_str]
+                
+                if shop_domain:
+                    update_query += " AND shop_domain = $9"
+                    params.append(shop_domain)
+                    
+                update_query += " RETURNING id"
+                
+                result = await conn.fetchval(update_query, *params)
             else:
                 # New product - INSERT without embedding (NULL)
-                insert_query = """
-                    INSERT INTO product_embeddings 
-                        (product_id, title, description, price, vendor, category, tags, metadata)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
-                    RETURNING id
-                """
-                result = await conn.fetchval(
-                    insert_query,
-                    product_id, title, description, price,
-                    vendor, category, tags or [], metadata_str
-                )
+                if shop_domain:
+                    insert_query = """
+                        INSERT INTO product_embeddings 
+                            (product_id, title, description, price, vendor, category, tags, metadata, shop_domain)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+                        RETURNING id
+                    """
+                    result = await conn.fetchval(
+                        insert_query,
+                        product_id, title, description, price,
+                        vendor, category, tags or [], metadata_str, shop_domain
+                    )
+                else:
+                    insert_query = """
+                        INSERT INTO product_embeddings 
+                            (product_id, title, description, price, vendor, category, tags, metadata)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+                        RETURNING id
+                    """
+                    result = await conn.fetchval(
+                        insert_query,
+                        product_id, title, description, price,
+                        vendor, category, tags or [], metadata_str
+                    )
         
         return result is not None
     
