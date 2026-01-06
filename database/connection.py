@@ -401,24 +401,28 @@ class DatabaseClient:
         """Update a product's embedding in the database and clear needs_resync flag"""
         pool = await self.connect()
         
-        # CRITICAL: Convert Python list to NumPy array for pgvector asyncpg codec
-        if isinstance(embedding, list):
-            embedding = np.array(embedding, dtype=np.float32)
+        # For UPDATE operations, keep as Python list - pgvector codec handles it
+        # (INSERT/SELECT can use NumPy arrays directly, but UPDATE needs Python list)
+        if isinstance(embedding, np.ndarray):
+            embedding = embedding.tolist()
         
         print(f"🔧 Updating embedding for {product_id}")
-        print(f"🔧 Embedding type: {type(embedding)}, shape: {embedding.shape if hasattr(embedding, 'shape') else 'N/A'}")
+        print(f"🔧 Embedding type: {type(embedding)}, length: {len(embedding) if isinstance(embedding, list) else 'N/A'}")
         
         query = """
             UPDATE product_embeddings 
-            SET embedding = $2, 
+            SET embedding = $2::vector, 
                 metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{needs_resync}', 'false'::jsonb),
                 updated_at = CURRENT_TIMESTAMP
             WHERE product_id = $1
             RETURNING id
         """
         
+        # Convert list to PostgreSQL vector format string
+        embedding_str = '[' + ','.join(map(str, embedding)) + ']'
+        
         async with pool.acquire() as conn:
-            result = await conn.fetchval(query, product_id, embedding)
+            result = await conn.fetchval(query, product_id, embedding_str)
             
         # Check if any row was updated
         if result is None:
