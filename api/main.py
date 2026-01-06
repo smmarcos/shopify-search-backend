@@ -1162,12 +1162,7 @@ async def search_products(request: SearchRequest):
                 WHERE shop_domain = $1
             """, shop)
             
-            # 2.1 SAVE TO ANALYTICS - Track every search with shop_domain
-            await conn.execute("""
-                INSERT INTO search_analytics (query, results_count, shop_domain)
-                VALUES ($1, 0, $2)
-            """, request.query, shop)
-            print(f"📊 Analytics tracked: '{request.query}' for shop: {shop}")
+            print(f"🔍 Search started for shop: {shop}, query: '{request.query}'")
         
         # 3. PROCEED WITH SEARCH (existing logic)
         # Get current configuration from database (per-shop)
@@ -1241,6 +1236,17 @@ async def search_products(request: SearchRequest):
             }
             for r in filtered_results
         ]
+        
+        # 8. SAVE TO ANALYTICS with actual results count (moved from beginning)
+        final_results_count = len(products)
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO search_analytics (query, results_count, shop_domain)
+                VALUES ($1, $2, $3)
+            """, corrected_query, final_results_count, shop)
+            print(f"📊 Analytics tracked: '{corrected_query}' → {final_results_count} results for shop: {shop}")
+        
+        print(f"🎁 Returning {final_results_count} final results to frontend")
         
         return SearchResponse(
             results=products,
