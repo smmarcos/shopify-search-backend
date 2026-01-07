@@ -2129,6 +2129,14 @@ async def compare_shopify_products(request: dict):
             
             # Only upsert basic info, don't touch embeddings if they exist
             # We need a different method that doesn't overwrite embeddings
+            
+            # Merge metadata: preserve incoming metadata (like handle) + add needs_resync flag
+            product_metadata = product.get('metadata', {})
+            if isinstance(product_metadata, dict):
+                product_metadata['needs_resync'] = needs_update
+            else:
+                product_metadata = {'needs_resync': needs_update}
+            
             await db_client.upsert_product_info(
                 product_id=product['product_id'],
                 shop_domain=shop,  # ✅ CRITICAL: Add shop isolation
@@ -2138,9 +2146,7 @@ async def compare_shopify_products(request: dict):
                 vendor=product.get('vendor', ''),
                 category=product.get('category', ''),
                 tags=tags_list,
-                metadata={
-                    'needs_resync': needs_update
-                }
+                metadata=product_metadata
             )
         
         # IMPORTANT: Generate embeddings for products that don't have them
