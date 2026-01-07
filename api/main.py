@@ -213,6 +213,31 @@ def verify_shopify_webhook(body: bytes, hmac_header: str) -> bool:
         logging.error(f"HMAC verification failed: {str(e)}")
         return False
 
+@app.post("/webhooks")
+async def webhooks_test_endpoint(
+    request: Request,
+    x_shopify_hmac_sha256: Optional[str] = Header(None)
+):
+    """
+    Generic webhook endpoint for Shopify to test webhook delivery.
+    Validates HMAC and returns 401 if invalid, 200 if valid.
+    """
+    # Read raw body
+    body = await request.body()
+    
+    # Verify HMAC
+    if not x_shopify_hmac_sha256:
+        logging.warning("Webhook received without HMAC header")
+        raise HTTPException(status_code=401, detail="Missing HMAC signature")
+    
+    if not verify_shopify_webhook(body, x_shopify_hmac_sha256):
+        logging.warning("Webhook HMAC verification failed")
+        raise HTTPException(status_code=401, detail="Invalid HMAC signature")
+    
+    # HMAC is valid - webhook accepted
+    logging.info("Webhook test endpoint called - HMAC valid")
+    return {"status": "ok", "message": "Webhook received and validated"}
+
 @app.post("/webhooks/customers/data_request")
 async def customer_data_request(
     request: Request,
