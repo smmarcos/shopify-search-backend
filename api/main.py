@@ -71,8 +71,22 @@ async def update_check_limits_function(secret: str = ""):
                 BEGIN
                     SELECT * INTO v_subscription FROM user_subscriptions WHERE shop_domain = p_shop_domain;
                     IF NOT FOUND THEN
-                        INSERT INTO user_subscriptions (shop_domain, plan_id)
-                        SELECT p_shop_domain, id FROM subscription_plans WHERE name = 'starter' RETURNING * INTO v_subscription;
+                        INSERT INTO user_subscriptions (
+                            shop_domain, 
+                            plan_id, 
+                            search_reset_date, 
+                            billing_cycle_start, 
+                            billing_cycle_end
+                        )
+                        SELECT 
+                            p_shop_domain, 
+                            id, 
+                            CURRENT_DATE, 
+                            CURRENT_DATE, 
+                            CURRENT_DATE + INTERVAL '30 days'
+                        FROM subscription_plans 
+                        WHERE name = 'starter' 
+                        RETURNING * INTO v_subscription;
                     END IF;
                     IF v_subscription.search_reset_date <= CURRENT_DATE - INTERVAL '30 days' THEN
                         UPDATE user_subscriptions SET searches_this_month = 0, search_reset_date = CURRENT_DATE,
